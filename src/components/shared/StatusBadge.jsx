@@ -13,6 +13,7 @@ const STATUS_STYLES = {
   supermanager: 'bg-indigo-100 text-indigo-700',
   manager:      'bg-blue-100 text-blue-700',
   chef:         'bg-orange-100 text-orange-700',
+  housekeeper:  'bg-teal-100 text-teal-700',
 }
 
 const STATUS_LABELS = {
@@ -28,6 +29,7 @@ const STATUS_LABELS = {
   supermanager: 'Supermanager',
   manager:      'Manager',
   chef:         'Chef',
+  housekeeper:  'Housekeeper',
 }
 
 export default function StatusBadge({ status }) {

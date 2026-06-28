@@ -9,6 +9,12 @@ const MEAL_LABELS = {
   snacks: 'Snacks', other: 'Other',
 }
 
+function DeptTag({ department }) {
+  return department === 'housekeeping'
+    ? <span className="bg-teal-100 text-teal-700 text-xs rounded-full px-2 py-0.5">🧹 Housekeeping</span>
+    : <span className="bg-orange-100 text-orange-700 text-xs rounded-full px-2 py-0.5">🍳 Kitchen</span>
+}
+
 function timeAgo(dateStr) {
   if (!dateStr) return '—'
   const diff = Date.now() - new Date(dateStr).getTime()
@@ -114,7 +120,12 @@ export default function PendingQueue() {
                 <div className="flex items-start justify-between gap-3 mb-2">
                   <div className="min-w-0">
                     <p className="text-base font-bold text-gray-900">{req.chef?.full_name ?? 'Unknown chef'}</p>
-                    <p className="text-base text-gray-600">{MEAL_LABELS[req.meal_purpose] ?? req.meal_purpose}</p>
+                    <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                      {req.meal_purpose && (
+                        <p className="text-base text-gray-600">{MEAL_LABELS[req.meal_purpose] ?? req.meal_purpose}</p>
+                      )}
+                      <DeptTag department={req.department} />
+                    </div>
                   </div>
                   <StatusBadge status={req.status} />
                 </div>

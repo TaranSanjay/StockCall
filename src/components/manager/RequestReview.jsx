@@ -320,12 +320,15 @@ export default function RequestReview() {
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 mb-5">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
             <div>
-              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Chef</p>
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Requester</p>
               <p className="text-base font-semibold text-gray-900">{chef?.full_name ?? '—'}</p>
             </div>
             <div>
-              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Meal</p>
-              <p className="text-base text-gray-800">{MEAL_LABELS[request.meal_purpose] ?? request.meal_purpose}</p>
+              <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">{request.meal_purpose ? 'Purpose' : 'Department'}</p>
+              {request.meal_purpose
+                ? <p className="text-base text-gray-800">{MEAL_LABELS[request.meal_purpose] ?? request.meal_purpose}</p>
+                : <p><span className="bg-teal-100 text-teal-700 text-xs rounded-full px-2 py-0.5">🧹 Housekeeping</span></p>
+              }
             </div>
             <div>
               <p className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-1">Submitted</p>

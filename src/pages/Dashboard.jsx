@@ -25,7 +25,7 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-gray-50">
       <Navbar profile={profile} onSignOut={signOut} />
-      {profile.role === 'chef'
+      {(profile.role === 'chef' || profile.role === 'housekeeper')
         ? <AllRequests />
         : <PendingQueue />
       }

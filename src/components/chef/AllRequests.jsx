@@ -10,6 +10,12 @@ const MEAL_LABELS = {
   snacks: 'Snacks', other: 'Other',
 }
 
+function DeptTag({ department }) {
+  return department === 'housekeeping'
+    ? <span className="bg-teal-100 text-teal-700 text-xs rounded-full px-2 py-0.5">🧹 Housekeeping</span>
+    : <span className="bg-orange-100 text-orange-700 text-xs rounded-full px-2 py-0.5">🍳 Kitchen</span>
+}
+
 function fmt(dateStr) {
   if (!dateStr) return '—'
   const d = new Date(dateStr)
@@ -77,7 +83,14 @@ function DetailPanel({ request, isOwner, needsReceipt, cancelling, onClose, onEd
         {/* Header */}
         <div className="flex items-start justify-between px-5 py-4 border-b border-gray-200 flex-shrink-0">
           <div className="space-y-1.5 min-w-0 pr-2">
-            <p className="text-lg font-bold text-gray-900">{MEAL_LABELS[request.meal_purpose] ?? request.meal_purpose}</p>
+            <div className="flex items-center gap-2 flex-wrap">
+              <p className="text-lg font-bold text-gray-900">
+                {request.department === 'housekeeping'
+                  ? 'Housekeeping Request'
+                  : (MEAL_LABELS[request.meal_purpose] ?? request.meal_purpose)}
+              </p>
+              <DeptTag department={request.department} />
+            </div>
             <div className="flex items-center gap-2 flex-wrap">
               <StatusBadge status={request.status} />
               <span className="text-sm text-gray-500">
@@ -193,24 +206,36 @@ export default function AllRequests() {
     setLoadError(null)
 
     try {
-      // AllRequests intentionally shows all chefs' requests per spec — all actions are owner-gated
-      const { data: reqs, error: reqErr } = await supabase
+      // Scope query by role:
+      // - housekeeper: only their own requests
+      // - chef: only kitchen requests (department = 'kitchen' or unset)
+      let query = supabase
         .from('requests')
         .select('*, request_items(*)')
         .order('created_at', { ascending: false })
         .limit(100)
+
+      if (profile.role === 'housekeeper') {
+        query = query.eq('chef_id', profile.id)
+      }
+
+      const { data: reqs, error: reqErr } = await query
       if (reqErr) throw reqErr
 
-      if (!reqs?.length) { setRequests([]); setLoading(false); return }
+      const roleFiltered = (reqs ?? []).filter(r =>
+        profile.role !== 'chef' || (r.department ?? 'kitchen') !== 'housekeeping'
+      )
+
+      if (!roleFiltered.length) { setRequests([]); setLoading(false); return }
 
       // Fetch chef names (separate query avoids FK ambiguity)
-      const chefIds = [...new Set(reqs.map(r => r.chef_id))]
+      const chefIds = [...new Set(roleFiltered.map(r => r.chef_id))]
       const { data: chefProfiles, error: profErr } = await supabase
         .from('profiles').select('id, full_name, username').in('id', chefIds)
       if (profErr) throw profErr
 
       const pMap = Object.fromEntries((chefProfiles ?? []).map(p => [p.id, p]))
-      const enriched = reqs.map(r => ({ ...r, chef: pMap[r.chef_id] ?? null }))
+      const enriched = roleFiltered.map(r => ({ ...r, chef: pMap[r.chef_id] ?? null }))
 
       setRequests(enriched)
 
@@ -278,7 +303,11 @@ export default function AllRequests() {
     fetchRequests()
   }
 
-  // Apply filters
+  const newRequestPath = profile?.role === 'housekeeper' ? '/requests/new/housekeeping' : '/requests/new'
+
+  const isHousekeeper = profile?.role === 'housekeeper'
+
+  // Apply filters (dept scoping is already done at query level)
   const displayed = requests
     .filter(r => filter === 'mine' ? r.chef_id === profile?.id : true)
     .filter(r => mealFilter ? r.meal_purpose === mealFilter : true)
@@ -304,13 +333,13 @@ export default function AllRequests() {
 
       {/* Header — desktop New Request button */}
       <div className="flex items-center justify-between mb-5">
-        <h1 className="text-xl font-bold text-gray-900">All Requests</h1>
+        <h1 className="text-xl font-bold text-gray-900">{isHousekeeper ? 'My Requests' : 'All Requests'}</h1>
         <div className="flex items-center gap-3">
           <button onClick={fetchRequests} className="text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1 cursor-pointer">
             ↻ Refresh
           </button>
           <button
-            onClick={() => navigate('/requests/new')}
+            onClick={() => navigate(newRequestPath)}
             className="hidden md:block bg-blue-600 hover:bg-blue-700 text-white text-base font-semibold px-4 py-2.5 rounded-xl transition-colors min-h-[44px]"
           >
             + New Request
@@ -318,47 +347,47 @@ export default function AllRequests() {
         </div>
       </div>
 
-      {/* Filter bar */}
-      <div className="flex flex-col sm:flex-row gap-3 mb-5">
-        {/* Chef toggle */}
-        <div className="flex bg-gray-100 p-1 rounded-xl flex-1">
-          {[['all', 'All Chefs'], ['mine', 'My Requests']].map(([val, label]) => (
-            <button
-              key={val}
-              onClick={() => setFilter(val)}
-              className={`flex-1 py-2 text-base font-medium rounded-lg transition-colors min-h-[44px] ${
-                filter === val ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
-        </div>
+      {/* Filter bar — chefs only; housekeepers always see only their own requests */}
+      {!isHousekeeper && (
+        <div className="flex flex-col sm:flex-row gap-3 mb-5">
+          <div className="flex bg-gray-100 p-1 rounded-xl flex-1">
+            {[['all', 'All Chefs'], ['mine', 'My Requests']].map(([val, label]) => (
+              <button
+                key={val}
+                onClick={() => setFilter(val)}
+                className={`flex-1 py-2 text-base font-medium rounded-lg transition-colors min-h-[44px] ${
+                  filter === val ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
 
-        {/* Meal filter */}
-        <select
-          value={mealFilter}
-          onChange={e => setMealFilter(e.target.value)}
-          className="border border-gray-300 rounded-xl px-3 py-2 text-base text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px] sm:w-40"
-        >
-          <option value="">All meals</option>
-          {Object.entries(MEAL_LABELS).map(([val, label]) => (
-            <option key={val} value={val}>{label}</option>
-          ))}
-        </select>
-      </div>
+          <select
+            value={mealFilter}
+            onChange={e => setMealFilter(e.target.value)}
+            className="border border-gray-300 rounded-xl px-3 py-2 text-base text-gray-700 bg-white focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[44px] sm:w-40"
+          >
+            <option value="">All meals</option>
+            {Object.entries(MEAL_LABELS).map(([val, label]) => (
+              <option key={val} value={val}>{label}</option>
+            ))}
+          </select>
+        </div>
+      )}
 
       {/* Empty state */}
       {displayed.length === 0 ? (
         <div className="text-center py-20">
           <p className="text-5xl mb-3">📋</p>
           <p className="text-base text-gray-500 mb-5">
-            {filter === 'mine'
+            {(isHousekeeper || filter === 'mine')
               ? "You haven't made any requests yet."
               : 'No requests found.'}
           </p>
           <button
-            onClick={() => navigate('/requests/new')}
+            onClick={() => navigate(newRequestPath)}
             className="bg-blue-600 hover:bg-blue-700 text-white text-base font-semibold px-5 py-3 rounded-xl min-h-[48px] transition-colors"
           >
             New Request
@@ -385,7 +414,12 @@ export default function AllRequests() {
                       {req.chef?.full_name ?? 'Unknown chef'}
                       {isOwn && <span className="ml-1.5 text-sm text-blue-500 font-medium">(you)</span>}
                     </p>
-                    <p className="text-base text-gray-600">{MEAL_LABELS[req.meal_purpose] ?? req.meal_purpose}</p>
+                    <div className="flex items-center gap-2 flex-wrap mt-0.5">
+                      {req.meal_purpose && (
+                        <p className="text-base text-gray-600">{MEAL_LABELS[req.meal_purpose] ?? req.meal_purpose}</p>
+                      )}
+                      <DeptTag department={req.department} />
+                    </div>
                   </div>
                   <div className="flex flex-col items-end gap-1">
                     <StatusBadge status={req.status} />
@@ -434,7 +468,7 @@ export default function AllRequests() {
       {/* FAB — mobile only */}
       {!selected && (
         <button
-          onClick={() => navigate('/requests/new')}
+          onClick={() => navigate(newRequestPath)}
           className="md:hidden fixed bottom-6 right-6 z-20 w-14 h-14 bg-blue-600 hover:bg-blue-700 rounded-full shadow-lg flex items-center justify-center text-white text-3xl leading-none transition-colors"
           aria-label="New Request"
         >
@@ -450,7 +484,10 @@ export default function AllRequests() {
           needsReceipt={needsReceiptIds.has(selected.id)}
           cancelling={cancelling}
           onClose={closePanel}
-          onEdit={() => navigate('/requests/new', { state: { request: selected } })}
+          onEdit={() => navigate(
+            selected.department === 'housekeeping' ? '/requests/new/housekeeping' : '/requests/new',
+            { state: { request: selected } }
+          )}
           onCancel={() => cancelRequest(selected.id)}
           onConfirmReceipt={() => navigate(`/requests/confirm/${selected.id}`)}
           supplyMap={supplyMap}

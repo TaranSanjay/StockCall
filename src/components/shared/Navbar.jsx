@@ -18,11 +18,10 @@ export default function Navbar({ profile, onSignOut }) {
     if (!isManager) return
 
     if (profile?.username === 'taran') {
-      supabase
-        .from('pending_checklist_items')
-        .select('id', { count: 'exact', head: true })
-        .eq('status', 'pending')
-        .then(({ count }) => setPendingCount(count ?? 0))
+      Promise.all([
+        supabase.from('pending_checklist_items').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
+        supabase.from('pending_hk_checklist_items').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
+      ]).then(([{ count: c1 }, { count: c2 }]) => setPendingCount((c1 ?? 0) + (c2 ?? 0)))
     }
 
     supabase
@@ -166,88 +165,86 @@ export default function Navbar({ profile, onSignOut }) {
           )}
         </div>
 
-        {/* Right: desktop nav links (md and above, managers only) */}
-        {isManager && (
+        {/* Right: desktop nav links (md and above) */}
+        {(isManager || profile?.role === 'housekeeper') && (
           <div className="ml-auto hidden md:flex items-center gap-1">
+
+            {/* Requests — shown to managers and housekeepers */}
             <NavLink
               to="/dashboard"
               end
               className={({ isActive }) =>
                 `text-sm px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors ${
-                  isActive
-                    ? 'text-blue-600 font-medium bg-blue-50'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                  isActive ? 'text-blue-600 font-medium bg-blue-50' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
                 }`
               }
             >
               Requests
-              {pendingRequestsCount > 0 && (
+              {isManager && pendingRequestsCount > 0 && (
                 <span className="w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
                   {pendingRequestsCount > 9 ? '9+' : pendingRequestsCount}
                 </span>
               )}
             </NavLink>
-            <NavLink
-              to="/orders"
-              className={({ isActive }) =>
-                `text-sm px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors ${
-                  isActive
-                    ? 'text-blue-600 font-medium bg-blue-50'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-                }`
-              }
-            >
-              Orders
-              {pendingOrdersCount > 0 && (
-                <span className="w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
-                  {pendingOrdersCount > 9 ? '9+' : pendingOrdersCount}
-                </span>
-              )}
-            </NavLink>
-            <NavLink
-              to="/logs"
-              className={({ isActive }) =>
-                `text-sm px-3 py-1.5 rounded-lg flex items-center transition-colors ${
-                  isActive
-                    ? 'text-blue-600 font-medium bg-blue-50'
-                    : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-                }`
-              }
-            >
-              Logs
-            </NavLink>
-            {profile?.username === 'taran' && (
-              <NavLink
-                to="/new-items"
-                className={({ isActive }) =>
-                  `text-sm px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors ${
-                    isActive
-                      ? 'text-blue-600 font-medium bg-blue-50'
-                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-                  }`
-                }
-              >
-                New Items
-                {pendingCount > 0 && (
-                  <span className="w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
-                    {pendingCount > 9 ? '9+' : pendingCount}
-                  </span>
+
+            {/* Manager-only links */}
+            {isManager && (
+              <>
+                <NavLink
+                  to="/orders"
+                  className={({ isActive }) =>
+                    `text-sm px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors ${
+                      isActive ? 'text-blue-600 font-medium bg-blue-50' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                    }`
+                  }
+                >
+                  Orders
+                  {pendingOrdersCount > 0 && (
+                    <span className="w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
+                      {pendingOrdersCount > 9 ? '9+' : pendingOrdersCount}
+                    </span>
+                  )}
+                </NavLink>
+                <NavLink
+                  to="/logs"
+                  className={({ isActive }) =>
+                    `text-sm px-3 py-1.5 rounded-lg flex items-center transition-colors ${
+                      isActive ? 'text-blue-600 font-medium bg-blue-50' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                    }`
+                  }
+                >
+                  Logs
+                </NavLink>
+                {profile?.username === 'taran' && (
+                  <NavLink
+                    to="/new-items"
+                    className={({ isActive }) =>
+                      `text-sm px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors ${
+                        isActive ? 'text-blue-600 font-medium bg-blue-50' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                      }`
+                    }
+                  >
+                    New Items
+                    {pendingCount > 0 && (
+                      <span className="w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
+                        {pendingCount > 9 ? '9+' : pendingCount}
+                      </span>
+                    )}
+                  </NavLink>
                 )}
-              </NavLink>
-            )}
-            {(profile?.role === 'supermanager' || profile?.role === 'admin') && (
-              <NavLink
-                to="/dashboard/expenditure"
-                className={({ isActive }) =>
-                  `text-sm px-3 py-1.5 rounded-lg flex items-center transition-colors ${
-                    isActive
-                      ? 'text-blue-600 font-medium bg-blue-50'
-                      : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-                  }`
-                }
-              >
-                Expenditure
-              </NavLink>
+                {(profile?.role === 'supermanager' || profile?.role === 'admin') && (
+                  <NavLink
+                    to="/dashboard/expenditure"
+                    className={({ isActive }) =>
+                      `text-sm px-3 py-1.5 rounded-lg flex items-center transition-colors ${
+                        isActive ? 'text-blue-600 font-medium bg-blue-50' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                      }`
+                    }
+                  >
+                    Expenditure
+                  </NavLink>
+                )}
+              </>
             )}
           </div>
         )}

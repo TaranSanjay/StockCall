@@ -1,10 +1,12 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { supabase } from '../../lib/supabase'
 
 export default function CategoryMapper({ categories, onCategoriesChange }) {
+  const [dept, setDept]             = useState('kitchen')
   const [items, setItems]           = useState([])
+  const [hkCategories, setHkCats]   = useState([])
   const [loading, setLoading]       = useState(true)
-  const [pendingCats, setPending]   = useState({}) // uncategorised: { [item_id]: category_id }
+  const [pendingCats, setPending]   = useState({})
   const [saving, setSaving]         = useState({})
   const [success, setSuccess]       = useState({})
   const [errors, setErrors]         = useState({})
@@ -12,34 +14,71 @@ export default function CategoryMapper({ categories, onCategoriesChange }) {
   const [addingCat, setAddingCat]   = useState(false)
   const [addCatError, setAddCatErr] = useState('')
 
-  async function fetchItems() {
+  // Reset form state when switching dept
+  useEffect(() => {
+    setPending({})
+    setSaving({})
+    setSuccess({})
+    setErrors({})
+    setNewCat('')
+    setAddCatErr('')
+  }, [dept])
+
+  const fetchItems = useCallback(async () => {
     setLoading(true)
-    const { data, error } = await supabase
-      .from('checklist_items')
-      .select(`
-        id, item_name,
-        item_categories(
-          id, category_id,
-          category:categories!category_id(id, name)
-        )
-      `)
-      .eq('is_active', true)
-      .order('item_name')
-    if (!error) setItems(data ?? [])
+    if (dept === 'kitchen') {
+      const { data, error } = await supabase
+        .from('checklist_items')
+        .select(`
+          id, item_name,
+          item_categories(
+            id, category_id,
+            category:categories!category_id(id, name)
+          )
+        `)
+        .eq('is_active', true)
+        .order('item_name')
+      if (!error) setItems(data ?? [])
+    } else {
+      const [{ data: hkItems }, { data: hkCats }] = await Promise.all([
+        supabase
+          .from('housekeeping_checklist_items')
+          .select(`
+            id, item_name,
+            hk_item_categories(
+              id, category_id,
+              category:hk_categories!category_id(id, name)
+            )
+          `)
+          .eq('is_active', true)
+          .order('item_name'),
+        supabase.from('hk_categories').select('id, name').order('name'),
+      ])
+      setItems(hkItems ?? [])
+      setHkCats(hkCats ?? [])
+    }
     setLoading(false)
-  }
+  }, [dept])
 
-  useEffect(() => { fetchItems() }, [])
+  useEffect(() => { fetchItems() }, [fetchItems])
 
-  const uncategorised = items.filter(i => !(i.item_categories?.length > 0))
-  const categorised   = items.filter(i =>   i.item_categories?.length > 0)
+  // Categories list for dropdown options in the active dept
+  const activeCats = dept === 'kitchen' ? categories : hkCategories
+
+  // Which field holds category assignments on each item
+  const catField = dept === 'kitchen' ? 'item_categories' : 'hk_item_categories'
+
+  const uncategorised = items.filter(i => !(i[catField]?.length > 0))
+  const categorised   = items.filter(i =>   i[catField]?.length > 0)
 
   const grouped = {}
   for (const item of categorised) {
-    const catName = item.item_categories[0].category?.name ?? 'Unknown'
+    const catName = item[catField][0].category?.name ?? 'Unknown'
     if (!grouped[catName]) grouped[catName] = []
     grouped[catName].push(item)
   }
+
+  const junctionTable = dept === 'kitchen' ? 'item_categories' : 'hk_item_categories'
 
   async function assignCategory(itemId, catId) {
     if (!catId) return
@@ -47,19 +86,13 @@ export default function CategoryMapper({ categories, onCategoriesChange }) {
     setErrors(p => ({ ...p, [itemId]: '' }))
     setSuccess(p => ({ ...p, [itemId]: false }))
     try {
-      const existing = items.find(i => i.id === itemId)?.item_categories?.[0]
-      if (existing) {
-        const { error } = await supabase
-          .from('item_categories')
-          .update({ category_id: catId })
-          .eq('id', existing.id)
-        if (error) throw error
-      } else {
-        const { error } = await supabase
-          .from('item_categories')
-          .insert({ checklist_item_id: itemId, category_id: catId })
-        if (error) throw error
-      }
+      const { error } = await supabase
+        .from(junctionTable)
+        .upsert(
+          { checklist_item_id: itemId, category_id: catId },
+          { onConflict: 'checklist_item_id' }
+        )
+      if (error) throw error
       setSuccess(p => ({ ...p, [itemId]: true }))
       setTimeout(() => setSuccess(p => ({ ...p, [itemId]: false })), 2000)
       await fetchItems()
@@ -73,16 +106,25 @@ export default function CategoryMapper({ categories, onCategoriesChange }) {
   async function handleAddCategory() {
     const name = newCatName.trim()
     if (!name) { setAddCatErr('Enter a category name.'); return }
-    if (categories.some(c => c.name.toLowerCase() === name.toLowerCase())) {
+    if (activeCats.some(c => c.name.toLowerCase() === name.toLowerCase())) {
       setAddCatErr('Category already exists.'); return
     }
     setAddingCat(true)
     setAddCatErr('')
-    const { data, error } = await supabase.from('categories').insert({ name }).select().single()
-    setAddingCat(false)
-    if (error) { setAddCatErr(error.message); return }
-    setNewCat('')
-    onCategoriesChange([...categories, data].sort((a, b) => a.name.localeCompare(b.name)))
+
+    if (dept === 'kitchen') {
+      const { data, error } = await supabase.from('categories').insert({ name }).select().single()
+      setAddingCat(false)
+      if (error) { setAddCatErr(error.message); return }
+      setNewCat('')
+      onCategoriesChange([...categories, data].sort((a, b) => a.name.localeCompare(b.name)))
+    } else {
+      const { data, error } = await supabase.from('hk_categories').insert({ name }).select().single()
+      setAddingCat(false)
+      if (error) { setAddCatErr(error.message); return }
+      setNewCat('')
+      setHkCats(prev => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)))
+    }
   }
 
   const selCls = 'border border-gray-300 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 bg-white'
@@ -97,6 +139,22 @@ export default function CategoryMapper({ categories, onCategoriesChange }) {
 
   return (
     <div className="space-y-5">
+
+      {/* Department toggle */}
+      <div className="flex bg-gray-100 p-1 rounded-xl max-w-xs">
+        {[['kitchen', '🍳 Kitchen'], ['housekeeping', '🧹 Housekeeping']].map(([val, label]) => (
+          <button
+            key={val}
+            onClick={() => setDept(val)}
+            className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${
+              dept === val ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
       <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
 
         {/* Left: Uncategorised */}
@@ -119,7 +177,7 @@ export default function CategoryMapper({ categories, onCategoriesChange }) {
                       className={selCls}
                     >
                       <option value="">Select…</option>
-                      {categories.map(c => (
+                      {activeCats.map(c => (
                         <option key={c.id} value={c.id}>{c.name}</option>
                       ))}
                     </select>
@@ -133,7 +191,7 @@ export default function CategoryMapper({ categories, onCategoriesChange }) {
                     {success[item.id] && <span className="text-green-600 text-sm font-medium">✓</span>}
                   </div>
                   {errors[item.id] && (
-                    <p className="text-xs text-red-600 mt-0.5 ml-0">{errors[item.id]}</p>
+                    <p className="text-xs text-red-600 mt-0.5">{errors[item.id]}</p>
                   )}
                 </div>
               ))}
@@ -166,12 +224,12 @@ export default function CategoryMapper({ categories, onCategoriesChange }) {
                               {item.item_name}
                             </span>
                             <select
-                              value={item.item_categories[0]?.category_id ?? ''}
+                              value={item[catField][0]?.category_id ?? ''}
                               onChange={e => assignCategory(item.id, e.target.value)}
                               disabled={saving[item.id]}
                               className={selCls}
                             >
-                              {categories.map(c => (
+                              {activeCats.map(c => (
                                 <option key={c.id} value={c.id}>{c.name}</option>
                               ))}
                             </select>

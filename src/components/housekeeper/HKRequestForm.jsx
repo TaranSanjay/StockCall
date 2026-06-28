@@ -5,13 +5,6 @@ import { useAuth } from '../../hooks/useAuth'
 import Navbar from '../shared/Navbar'
 
 const UNITS = ['kg', 'g', 'litre', 'ml', 'pieces', 'packets', 'dozens', 'other']
-const MEAL_PURPOSES = [
-  { value: 'breakfast', label: 'Breakfast' },
-  { value: 'lunch',     label: 'Lunch' },
-  { value: 'dinner',    label: 'Dinner' },
-  { value: 'snacks',    label: 'Snacks' },
-  { value: 'other',     label: 'Other' },
-]
 
 async function processCustomItemsPipeline(requestId, profileId, checklistTable, pendingTable) {
   try {
@@ -59,14 +52,13 @@ async function processCustomItemsPipeline(requestId, profileId, checklistTable, 
   }
 }
 
-export default function NewRequestForm() {
+export default function HKRequestForm() {
   const { profile, signOut } = useAuth()
   const navigate = useNavigate()
   const location = useLocation()
 
   const editingRequest = location.state?.request ?? null
 
-  const [mealPurpose, setMealPurpose]           = useState(editingRequest?.meal_purpose ?? '')
   const [notes, setNotes]                       = useState(editingRequest?.notes ?? '')
   const [checklistItems, setChecklistItems]     = useState([])
   const [checkedItems, setCheckedItems]         = useState({})
@@ -78,7 +70,7 @@ export default function NewRequestForm() {
 
   useEffect(() => {
     supabase
-      .from('checklist_items')
+      .from('housekeeping_checklist_items')
       .select('id, item_name')
       .eq('is_active', true)
       .order('item_name')
@@ -106,7 +98,7 @@ export default function NewRequestForm() {
   const toggleItem = (name) =>
     setCheckedItems(prev => {
       if (prev[name]) { const n = { ...prev }; delete n[name]; return n }
-      return { ...prev, [name]: { quantity: '', unit: 'kg' } }
+      return { ...prev, [name]: { quantity: '', unit: 'pieces' } }
     })
 
   const updateChecked = (name, field, value) =>
@@ -123,9 +115,8 @@ export default function NewRequestForm() {
 
   const validate = () => {
     const errs = {}
-    if (!mealPurpose) errs.mealPurpose = 'Please choose a meal.'
     if (!Object.keys(checkedItems).length && !customItems.length)
-      errs.items = 'Add at least one ingredient.'
+      errs.items = 'Add at least one item.'
     Object.entries(checkedItems).forEach(([name, { quantity }]) => {
       if (!quantity || Number(quantity) <= 0)
         errs[`qty_${name}`] = 'Enter a quantity.'
@@ -151,18 +142,15 @@ export default function NewRequestForm() {
       let requestId = editingRequest?.id
 
       const payload = {
-        meal_purpose: mealPurpose,
         notes:        notes.trim() || null,
         status,
         submitted_at: status === 'submitted' ? new Date().toISOString() : null,
       }
 
       if (editingRequest) {
-        // Update the request header
         const { error: updErr } = await supabase.from('requests').update(payload).eq('id', editingRequest.id)
         if (updErr) throw updErr
 
-        // Fetch what's currently in the DB for this draft
         const { data: existingItems, error: fetchErr } = await supabase
           .from('request_items').select('id, item_name, is_custom').eq('request_id', editingRequest.id)
         if (fetchErr) throw fetchErr
@@ -197,19 +185,16 @@ export default function NewRequestForm() {
           }
         }
 
-        // Updates first (non-destructive)
         for (const { id, ...fields } of toUpdate) {
           const { error: uErr } = await supabase.from('request_items').update(fields).eq('id', id)
           if (uErr) throw uErr
         }
 
-        // Inserts (non-destructive)
         if (toInsert.length) {
           const { error: insErr } = await supabase.from('request_items').insert(toInsert)
           if (insErr) throw insErr
         }
 
-        // Delete obsolete items only after inserts succeed
         const idsToDelete = (existingItems ?? [])
           .filter(i => i.is_custom ? !newCustomDbIds.has(i.id) : !newNonCustomNames.has(i.item_name))
           .map(i => i.id)
@@ -220,7 +205,7 @@ export default function NewRequestForm() {
       } else {
         const { data: req, error } = await supabase
           .from('requests')
-          .insert({ chef_id: profile.id, department: 'kitchen', ...payload })
+          .insert({ chef_id: profile.id, department: 'housekeeping', ...payload })
           .select('id')
           .single()
         if (error) throw error
@@ -244,7 +229,7 @@ export default function NewRequestForm() {
       if (status === 'submitted') {
         await processCustomItemsPipeline(
           requestId, profile.id,
-          'checklist_items', 'pending_checklist_items'
+          'housekeeping_checklist_items', 'pending_hk_checklist_items'
         )
       }
 
@@ -282,7 +267,6 @@ export default function NewRequestForm() {
 
       <div className="max-w-2xl mx-auto px-4 py-6 sm:px-6">
 
-        {/* Back + title */}
         <div className="flex items-center gap-3 mb-6">
           <button
             onClick={() => navigate('/dashboard')}
@@ -291,38 +275,16 @@ export default function NewRequestForm() {
             ← Back
           </button>
           <h1 className="text-xl font-bold text-gray-900">
-            {editingRequest ? 'Edit Request' : 'New Request'}
+            {editingRequest ? 'Edit Request' : 'New Housekeeping Request'}
           </h1>
         </div>
 
         <div className="space-y-5">
 
-          {/* Meal */}
-          <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
-            <label className="block text-base font-medium text-gray-700 mb-2">
-              Meal <span className="text-red-500">*</span>
-            </label>
-            <select
-              value={mealPurpose}
-              onChange={e => setMealPurpose(e.target.value)}
-              className={`w-full border rounded-lg px-3 py-3 text-base text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[48px] ${
-                errors.mealPurpose ? 'border-red-400' : 'border-gray-300'
-              }`}
-            >
-              <option value="">Choose meal…</option>
-              {MEAL_PURPOSES.map(mp => (
-                <option key={mp.value} value={mp.value}>{mp.label}</option>
-              ))}
-            </select>
-            {errors.mealPurpose && (
-              <p className="text-base text-red-600 mt-1">{errors.mealPurpose}</p>
-            )}
-          </div>
-
-          {/* Ingredient Checklist */}
+          {/* Items Checklist */}
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
             <h2 className="text-base font-medium text-gray-700 mb-3">
-              Ingredients <span className="text-red-500">*</span>
+              Items <span className="text-red-500">*</span>
             </h2>
 
             {loadingChecklist ? (
@@ -494,7 +456,6 @@ export default function NewRequestForm() {
             </p>
           )}
 
-          {/* Action buttons — stacked on mobile, side by side on sm+ */}
           <div className="space-y-3 pb-8">
             <div className="flex flex-col-reverse sm:flex-row gap-3">
               <button

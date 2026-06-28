@@ -15,9 +15,15 @@ function fmtDateTime(dateStr) {
   return `${dd}/${mm}/${yy}, ${hh}:${min}`
 }
 
+const DEPT_CONFIG = {
+  kitchen:      { pending: 'pending_checklist_items',    target: 'checklist_items' },
+  housekeeping: { pending: 'pending_hk_checklist_items', target: 'housekeeping_checklist_items' },
+}
+
 export default function NewItemsQueue() {
   const { profile, signOut } = useAuth()
 
+  const [dept, setDept]         = useState('kitchen')
   const [items, setItems]       = useState([])
   const [loading, setLoading]   = useState(true)
   const [loadError, setLoadError] = useState(null)
@@ -25,12 +31,15 @@ export default function NewItemsQueue() {
   const [toast, setToast]       = useState(null)
   const [acting, setActing]     = useState(null)
 
+  useEffect(() => { setFilter('pending') }, [dept])
+
   const load = useCallback(async () => {
     setLoading(true)
     setLoadError(null)
+    const { pending: pendingTable } = DEPT_CONFIG[dept]
     try {
       const { data: rows, error: rowErr } = await supabase
-        .from('pending_checklist_items')
+        .from(pendingTable)
         .select('*')
         .order('requested_at', { ascending: false })
         .limit(100)
@@ -59,20 +68,21 @@ export default function NewItemsQueue() {
       setLoadError('Something went wrong. Please refresh and try again.')
       setLoading(false)
     }
-  }, [])
+  }, [dept])
 
   useEffect(() => { load() }, [load])
 
   async function handleApprove(item) {
     setActing(item.id)
+    const { pending: pendingTable, target: targetTable } = DEPT_CONFIG[dept]
     try {
       const { error: insErr } = await supabase
-        .from('checklist_items')
+        .from(targetTable)
         .insert({ item_name: item.item_name, is_active: true })
       if (insErr) throw insErr
 
       const { error: updErr } = await supabase
-        .from('pending_checklist_items')
+        .from(pendingTable)
         .update({
           status:      'approved',
           reviewed_by: profile.id,
@@ -92,9 +102,10 @@ export default function NewItemsQueue() {
 
   async function handleDismiss(item) {
     setActing(item.id)
+    const { pending: pendingTable } = DEPT_CONFIG[dept]
     try {
       const { error } = await supabase
-        .from('pending_checklist_items')
+        .from(pendingTable)
         .update({
           status:      'rejected',
           reviewed_by: profile.id,
@@ -150,7 +161,22 @@ export default function NewItemsQueue() {
           </button>
         </div>
 
-        {/* Filter toggle */}
+        {/* Department tab */}
+        <div className="flex bg-gray-100 p-1 rounded-xl mb-4">
+          {[['kitchen', '🍳 Kitchen'], ['housekeeping', '🧹 Housekeeping']].map(([val, label]) => (
+            <button
+              key={val}
+              onClick={() => setDept(val)}
+              className={`flex-1 py-2 text-base font-medium rounded-lg transition-colors min-h-[44px] ${
+                dept === val ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+
+        {/* Pending / All toggle */}
         <div className="flex bg-gray-100 p-1 rounded-xl mb-5">
           {[['pending', 'Pending'], ['all', 'All']].map(([val, label]) => (
             <button
@@ -171,7 +197,6 @@ export default function NewItemsQueue() {
           </p>
         )}
 
-        {/* Empty state */}
         {displayed.length === 0 ? (
           <div className="text-center py-20">
             <p className="text-5xl mb-3">{filter === 'pending' ? '✅' : '📋'}</p>
@@ -197,24 +222,12 @@ export default function NewItemsQueue() {
                 </div>
 
                 <div className="text-sm text-gray-500 space-y-0.5 mb-3">
-                  <p>
-                    Requested by:{' '}
-                    <span className="text-gray-700 font-medium">{item.requesterName}</span>
-                  </p>
-                  <p>
-                    Requested at:{' '}
-                    <span className="text-gray-700">{fmtDateTime(item.requested_at)}</span>
-                  </p>
+                  <p>Requested by: <span className="text-gray-700 font-medium">{item.requesterName}</span></p>
+                  <p>Requested at: <span className="text-gray-700">{fmtDateTime(item.requested_at)}</span></p>
                   {item.status !== 'pending' && item.reviewerName && (
                     <>
-                      <p>
-                        Reviewed by:{' '}
-                        <span className="text-gray-700 font-medium">{item.reviewerName}</span>
-                      </p>
-                      <p>
-                        Reviewed at:{' '}
-                        <span className="text-gray-700">{fmtDateTime(item.reviewed_at)}</span>
-                      </p>
+                      <p>Reviewed by: <span className="text-gray-700 font-medium">{item.reviewerName}</span></p>
+                      <p>Reviewed at: <span className="text-gray-700">{fmtDateTime(item.reviewed_at)}</span></p>
                     </>
                   )}
                 </div>

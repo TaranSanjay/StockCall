@@ -130,6 +130,12 @@ function PaymentPill({ method }) {
   return <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${cls}`}>{label}</span>
 }
 
+function DeptTag({ department }) {
+  return department === 'housekeeping'
+    ? <span className="bg-teal-100 text-teal-700 text-xs rounded-full px-2 py-0.5">🧹 Housekeeping</span>
+    : <span className="bg-orange-100 text-orange-700 text-xs rounded-full px-2 py-0.5">🍳 Kitchen</span>
+}
+
 // ── Tab 1 — Requests ──────────────────────────────────────────────────────────
 
 function RequestsTab() {
@@ -157,7 +163,11 @@ function RequestsTab() {
   const displayed = data.filter(r =>
     inRange(r.created_at, dateFrom, dateTo) &&
     (!chefF   || r.chef?.full_name === chefF) &&
-    (!mealF   || r.meal_purpose === mealF) &&
+    (!mealF   || (
+      mealF === 'housekeeping'
+        ? r.department === 'housekeeping'
+        : (r.department ?? 'kitchen') === 'kitchen'
+    )) &&
     (!statusF || r.status === statusF)
   )
 
@@ -189,7 +199,9 @@ function RequestsTab() {
     <div>
       {modal && (
         <Modal
-          title={`${MEAL_LABELS[modal.meal_purpose] ?? modal.meal_purpose} — ${modal.chef?.full_name ?? '—'}`}
+          title={modal.department === 'housekeeping'
+            ? `Housekeeping Request — ${modal.chef?.full_name ?? '—'}`
+            : `${MEAL_LABELS[modal.meal_purpose] ?? modal.meal_purpose} — ${modal.chef?.full_name ?? '—'}`}
           onClose={() => setModal(null)}
         >
           <ItemList req={modal} />
@@ -200,16 +212,17 @@ function RequestsTab() {
         <FRow>
           <FField label="From"><input type="date" value={dateFrom} onChange={e => setFrom(e.target.value)} className={iCls} /></FField>
           <FField label="To"><input type="date" value={dateTo} onChange={e => setTo(e.target.value)} className={iCls} /></FField>
-          <FField label="Chef">
+          <FField label="Requester">
             <select value={chefF} onChange={e => setChef(e.target.value)} className={sCls}>
-              <option value="">All chefs</option>
+              <option value="">All requesters</option>
               {chefs.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </FField>
-          <FField label="Meal">
+          <FField label="Purpose">
             <select value={mealF} onChange={e => setMeal(e.target.value)} className={sCls}>
-              <option value="">All meals</option>
-              {Object.entries(MEAL_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
+              <option value="">All purposes</option>
+              <option value="kitchen">Kitchen</option>
+              <option value="housekeeping">Housekeeping</option>
             </select>
           </FField>
         </FRow>
@@ -247,7 +260,12 @@ function RequestsTab() {
                   <div className="flex items-start justify-between gap-2 mb-1.5">
                     <div>
                       <p className="text-sm font-bold text-gray-900">{req.chef?.full_name ?? '—'}</p>
-                      <p className="text-sm text-gray-600">{MEAL_LABELS[req.meal_purpose] ?? req.meal_purpose}</p>
+                      <div className="mt-0.5">
+                        {req.department === 'housekeeping'
+                          ? <span className="bg-teal-100 text-teal-700 text-xs rounded-full px-2 py-0.5">🧹 Housekeeping</span>
+                          : <span className="bg-orange-100 text-orange-700 text-xs rounded-full px-2 py-0.5">🍳 Kitchen</span>
+                        }
+                      </div>
                       <p className="text-xs text-gray-400 mt-0.5">{fmt(req.created_at)}</p>
                     </div>
                     <StatusBadge status={req.status} />
@@ -274,7 +292,7 @@ function RequestsTab() {
           {/* Desktop table */}
           <div className="hidden md:block bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
             <table className="w-full text-sm">
-              <THead cols={['Date & Time', 'Chef', 'Meal', 'Status', 'Reviewed By', 'Items', '']} />
+              <THead cols={['Date & Time', 'Requester', 'Purpose', 'Status', 'Reviewed By', 'Items', '']} />
               <tbody className="divide-y divide-gray-100">
                 {displayed.map(req => {
                   const items    = req.request_items ?? []
@@ -285,7 +303,12 @@ function RequestsTab() {
                     <tr key={req.id} className="hover:bg-gray-50">
                       <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{fmt(req.created_at)}</td>
                       <td className="px-4 py-3 font-medium text-gray-900">{req.chef?.full_name ?? '—'}</td>
-                      <td className="px-4 py-3 text-gray-700">{MEAL_LABELS[req.meal_purpose] ?? req.meal_purpose}</td>
+                      <td className="px-4 py-3 text-gray-700">
+                        {req.department === 'housekeeping'
+                          ? <span className="bg-teal-100 text-teal-700 text-xs rounded-full px-2 py-0.5">🧹 Housekeeping</span>
+                          : <span className="bg-orange-100 text-orange-700 text-xs rounded-full px-2 py-0.5">🍳 Kitchen</span>
+                        }
+                      </td>
                       <td className="px-4 py-3"><StatusBadge status={req.status} /></td>
                       <td className="px-4 py-3 text-gray-700">{reviewer}</td>
                       <td className="px-4 py-3 text-gray-600">
@@ -328,6 +351,7 @@ function OrdersTab() {
         order_items(*),
         placed_by_profile:profiles!placed_by(full_name),
         request:requests!request_id(
+          department,
           chef:profiles!chef_id(full_name)
         )
       `)
@@ -505,7 +529,11 @@ function OrdersTab() {
                     <p className="text-sm font-bold text-gray-900">₹{grand.toFixed(2)}</p>
                   </div>
                   <p className="text-xs text-gray-500 mb-2">
-                    Chef: {order.request?.chef?.full_name ?? '—'} · {order.order_items?.length ?? 0} items
+                    Requester: {order.request?.chef?.full_name ?? '—'}
+                    {order.request?.department === 'housekeeping' && (
+                      <span className="bg-teal-100 text-teal-700 text-xs rounded-full px-1.5 py-0.5 ml-1">🧹</span>
+                    )}
+                    {' '}· {order.order_items?.length ?? 0} items
                   </p>
                   <button onClick={() => setExpanded(open ? null : order.id)} className="text-sm text-blue-600 font-medium">
                     {open ? 'Hide ▲' : 'View Details ▼'}
@@ -523,14 +551,19 @@ function OrdersTab() {
           {/* Desktop table */}
           <div className="hidden md:block bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
             <table className="w-full text-sm">
-              <THead cols={['Date & Time', 'Placed By', 'Chef', 'Vendor', 'Items', 'Grand Total', '']} />
+              <THead cols={['Date & Time', 'Placed By', 'Requester', 'Vendor', 'Items', 'Grand Total', '']} />
               <tbody className="divide-y divide-gray-100">
                 {displayed.map(order => {
                   return (
                     <tr key={order.id} className="hover:bg-gray-50">
                       <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{fmt(order.placed_at)}</td>
                       <td className="px-4 py-3 font-medium text-gray-900">{order.placed_by_profile?.full_name ?? '—'}</td>
-                      <td className="px-4 py-3 text-gray-700">{order.request?.chef?.full_name ?? '—'}</td>
+                      <td className="px-4 py-3 text-gray-700">
+                        {order.request?.chef?.full_name ?? '—'}
+                        {order.request?.department === 'housekeeping' && (
+                          <span className="bg-teal-100 text-teal-700 text-xs rounded-full px-1.5 py-0.5 ml-1">🧹</span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 text-gray-700">
                         <div className="flex items-center gap-2 flex-wrap">
                           {order.vendor_name}
@@ -577,6 +610,7 @@ function SupplyTab() {
           request_item:request_items!request_item_id(quantity),
           order:orders!order_id(
             request:requests!request_id(
+              department,
               chef:profiles!chef_id(full_name)
             )
           )
@@ -625,9 +659,9 @@ function SupplyTab() {
               {suppliers.map(p => <option key={p} value={p}>{p}</option>)}
             </select>
           </FField>
-          <FField label="Chef">
+          <FField label="Requester">
             <select value={chefF} onChange={e => setChef(e.target.value)} className={sCls}>
-              <option value="">All chefs</option>
+              <option value="">All requesters</option>
               {chefs.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </FField>
@@ -661,7 +695,12 @@ function SupplyTab() {
                     <p className="text-sm font-bold text-gray-900">{oi.item_name ?? '—'}</p>
                     <p className="text-xs text-gray-400 whitespace-nowrap">{fmt(s.supplied_at)}</p>
                   </div>
-                  <p className="text-sm text-gray-600">By {suppliedBy} · Chef: {chef}</p>
+                  <p className="text-sm text-gray-600">
+                    By {suppliedBy} · Requester: {chef}
+                    {oi.order?.request?.department === 'housekeeping' && (
+                      <span className="bg-teal-100 text-teal-700 text-xs rounded-full px-1.5 py-0.5 ml-1">🧹</span>
+                    )}
+                  </p>
                   <div className="flex gap-4 text-sm text-gray-600 flex-wrap">
                     <span>Requested: {reqQty != null ? `${reqQty}${oi.unit ?? ''}` : '—'}</span>
                     <span>Ordered: {oi.quantity_ordered != null ? `${oi.quantity_ordered}${oi.unit ?? ''}` : '—'}</span>
@@ -679,7 +718,7 @@ function SupplyTab() {
           {/* Desktop table */}
           <div className="hidden md:block bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
             <table className="w-full text-sm">
-              <THead cols={['Date & Time', 'Supplied By', 'Chef', 'Item', 'Requested', 'Ordered', 'Supplied', 'Diff', 'Reason']} />
+              <THead cols={['Date & Time', 'Supplied By', 'Requester', 'Item', 'Requested', 'Ordered', 'Supplied', 'Diff', 'Reason']} />
               <tbody className="divide-y divide-gray-100">
                 {displayed.map(s => {
                   const oi         = s.order_item ?? {}
@@ -690,7 +729,12 @@ function SupplyTab() {
                     <tr key={s.id} className="hover:bg-gray-50">
                       <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{fmt(s.supplied_at)}</td>
                       <td className="px-4 py-3 font-medium text-gray-900">{suppliedBy}</td>
-                      <td className="px-4 py-3 text-gray-700">{chef}</td>
+                      <td className="px-4 py-3 text-gray-700">
+                        {chef}
+                        {oi.order?.request?.department === 'housekeeping' && (
+                          <span className="bg-teal-100 text-teal-700 text-xs rounded-full px-1.5 py-0.5 ml-1">🧹</span>
+                        )}
+                      </td>
                       <td className="px-4 py-3 font-medium text-gray-900">{oi.item_name ?? '—'}</td>
                       <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{reqQty != null ? `${reqQty}${oi.unit ?? ''}` : '—'}</td>
                       <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{oi.quantity_ordered != null ? `${oi.quantity_ordered}${oi.unit ?? ''}` : '—'}</td>
@@ -1305,7 +1349,7 @@ export default function LogsView() {
   const { profile, signOut } = useAuth()
   const [activeTab, setActiveTab] = useState(0)
 
-  const isAdmin = profile?.role === 'admin'
+  const isAdmin = profile?.username === 'taran'
   const TABS    = isAdmin ? ALL_TABS : PUBLIC_TABS
 
   return (

@@ -11,6 +11,7 @@ import OrdersQueue from './components/manager/OrdersQueue'
 import NewItemsQueue from './components/manager/NewItemsQueue'
 import LogsView from './components/shared/LogsView'
 import ExpenditureDashboard from './components/dashboard/ExpenditureDashboard'
+import HKRequestForm from './components/housekeeper/HKRequestForm'
 
 function Spinner() {
   return (
@@ -30,7 +31,7 @@ function ManagerRoute({ children }) {
   const { user, profile, loading } = useAuth()
   if (loading) return <Spinner />
   if (!user) return <Navigate to="/login" replace />
-  if (profile?.role === 'chef') return <Navigate to="/dashboard" replace />
+  if (profile?.role === 'chef' || profile?.role === 'housekeeper') return <Navigate to="/dashboard" replace />
   return children
 }
 
@@ -56,6 +57,7 @@ export default function App() {
         <Route path="/logs"                          element={<ManagerRoute><LogsView /></ManagerRoute>} />
         <Route path="/new-items"                     element={<ManagerRoute><NewItemsQueue /></ManagerRoute>} />
         <Route path="/dashboard/expenditure"         element={<ManagerRoute><ExpenditureDashboard /></ManagerRoute>} />
+        <Route path="/requests/new/housekeeping"     element={<ProtectedRoute><HKRequestForm /></ProtectedRoute>} />
         <Route path="*"                              element={<Navigate to="/" replace />} />
       </Routes>
     </BrowserRouter>

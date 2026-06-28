@@ -43,11 +43,9 @@ function formatBucketLabel(key, granularity) {
     const [y, m, day] = key.split('-')
     return `${parseInt(day)} ${MONTH_NAMES[parseInt(m) - 1]}`
   } else if (granularity === 'weekly') {
-    // '2026-06-W2'
     const parts = key.split('-')
     return `${MONTH_NAMES[parseInt(parts[1]) - 1]} ${parts[2]}`
   } else {
-    // '2026-06'
     const [y, m] = key.split('-')
     return `${MONTH_NAMES[parseInt(m) - 1]} ${y}`
   }
@@ -76,9 +74,11 @@ function CustomTooltip({ active, payload, label }) {
   )
 }
 
+
 export default function ExpenditureDashboard() {
   const { profile, signOut } = useAuth()
 
+  const [dept, setDept]                 = useState('kitchen')
   const [dateFrom, setDateFrom]         = useState(defaultFrom)
   const [dateTo, setDateTo]             = useState(defaultTo)
   const [granularity, setGranularity]   = useState('weekly')
@@ -96,10 +96,11 @@ export default function ExpenditureDashboard() {
 
   useEffect(() => { document.title = 'Expenditure Dashboard · Stock Call' }, [])
 
-  // Fetch categories once on mount
+  // Fetch categories whenever dept changes
   useEffect(() => {
+    const table = dept === 'kitchen' ? 'categories' : 'hk_categories'
     supabase
-      .from('categories')
+      .from(table)
       .select('id, name')
       .order('name')
       .then(({ data }) => {
@@ -107,9 +108,9 @@ export default function ExpenditureDashboard() {
         setCategories(cats)
         setSelectedCats(new Set([...cats.map(c => c.name), 'Uncategorised']))
       })
-  }, [])
+  }, [dept])
 
-  // Fetch raw order_items when date range changes
+  // Fetch raw order_items when date range or dept changes
   useEffect(() => {
     let cancelled = false
     async function load() {
@@ -119,39 +120,91 @@ export default function ExpenditureDashboard() {
         const fromISO = dateFrom + 'T00:00:00'
         const toISO   = dateTo   + 'T23:59:59'
 
-        const { data: orders, error: ordErr } = await supabase
+        // Step 1: fetch orders in date range
+        const { data: allOrders, error: ordErr } = await supabase
           .from('orders')
-          .select('id, placed_at')
+          .select('id, placed_at, request_id')
           .gte('placed_at', fromISO)
           .lte('placed_at', toISO)
         if (ordErr) throw ordErr
 
-        if (!orders?.length) {
+        if (!allOrders?.length) {
           if (!cancelled) { setRawItems([]); setOrderDateMap({}) }
           return
         }
 
-        const orderIds = orders.map(o => o.id)
-        const dateMap  = Object.fromEntries(orders.map(o => [o.id, o.placed_at]))
+        // Step 2: fetch requests for department filter
+        const reqIds = [...new Set(allOrders.map(o => o.request_id).filter(Boolean))]
+        const { data: reqs, error: reqErr } = await supabase
+          .from('requests').select('id, department').in('id', reqIds)
+        if (reqErr) throw reqErr
 
-        const { data: items, error: itmErr } = await supabase
-          .from('order_items')
-          .select(`
-            id, total_price, gst_percent, order_id,
-            request_item:request_items!request_item_id(
-              checklist_item:checklist_items!checklist_item_id(
-                id,
-                item_categories(
-                  category:categories!category_id(id, name)
-                )
-              )
+        const filteredReqIds = new Set(
+          (reqs ?? [])
+            .filter(r => dept === 'kitchen'
+              ? (r.department === 'kitchen' || !r.department)
+              : r.department === 'housekeeping'
             )
-          `)
+            .map(r => r.id)
+        )
+
+        const filteredOrders = allOrders.filter(o => filteredReqIds.has(o.request_id))
+
+        if (!filteredOrders.length) {
+          if (!cancelled) { setRawItems([]); setOrderDateMap({}) }
+          return
+        }
+
+        const orderIds = filteredOrders.map(o => o.id)
+        const dateMap  = Object.fromEntries(filteredOrders.map(o => [o.id, o.placed_at]))
+
+        // Step 3: fetch order_items (flat — no joins)
+        const { data: orderItems, error: itmErr } = await supabase
+          .from('order_items')
+          .select('id, order_id, item_name, total_price, gst_percent')
           .in('order_id', orderIds)
         if (itmErr) throw itmErr
 
+        if (!orderItems?.length) {
+          if (!cancelled) { setRawItems([]); setOrderDateMap(dateMap) }
+          return
+        }
+
+        // Step 4: name → checklist item id
+        const checklistTable = dept === 'kitchen' ? 'checklist_items' : 'housekeeping_checklist_items'
+        const { data: checklistItems } = await supabase
+          .from(checklistTable).select('id, item_name')
+
+        const nameToId = new Map(
+          (checklistItems ?? []).map(ci => [ci.item_name.toLowerCase().trim(), ci.id])
+        )
+
+        // Step 5: checklist item id → category id
+        const junctionTable = dept === 'kitchen' ? 'item_categories' : 'hk_item_categories'
+        const { data: itemCats } = await supabase
+          .from(junctionTable).select('checklist_item_id, category_id')
+
+        const idToCatId = new Map(
+          (itemCats ?? []).map(ic => [ic.checklist_item_id, ic.category_id])
+        )
+
+        // Step 6: category id → category name
+        const catTable = dept === 'kitchen' ? 'categories' : 'hk_categories'
+        const { data: catRows } = await supabase.from(catTable).select('id, name')
+
+        const catIdToName = new Map(
+          (catRows ?? []).map(c => [c.id, c.name])
+        )
+
+        // Step 7: enrich each order_item with its resolved category name
+        const assembled = orderItems.map(oi => {
+          const checklistId = nameToId.get(oi.item_name?.toLowerCase().trim() ?? '')
+          const catId       = checklistId ? idToCatId.get(checklistId) : null
+          return { ...oi, _catName: catId ? (catIdToName.get(catId) ?? 'Uncategorised') : 'Uncategorised' }
+        })
+
         if (!cancelled) {
-          setRawItems(items ?? [])
+          setRawItems(assembled)
           setOrderDateMap(dateMap)
         }
       } catch {
@@ -162,19 +215,19 @@ export default function ExpenditureDashboard() {
     }
     load()
     return () => { cancelled = true }
-  }, [dateFrom, dateTo])
+  }, [dateFrom, dateTo, dept])
 
-  // Process chart data whenever raw items, granularity, or selection change
+  // Process chart data whenever raw items, granularity, selection, or dept change
   useEffect(() => {
     const buckets = {}
     let preTax = 0, tax = 0
 
     for (const item of rawItems) {
-      const base    = Number(item.total_price) || 0
-      const rate    = (Number(item.gst_percent) || 0) / 100
-      const paid    = base * (1 + rate)
-      const catName = item.request_item?.checklist_item?.item_categories?.[0]?.category?.name
-        ?? 'Uncategorised'
+      const base = Number(item.total_price) || 0
+      const rate = (Number(item.gst_percent) || 0) / 100
+      const paid = base * (1 + rate)
+
+      const catName = item._catName ?? 'Uncategorised'
 
       // selectedCats.size === 0 means categories haven't loaded — include everything
       if (selectedCats.size > 0 && !selectedCats.has(catName)) continue
@@ -196,9 +249,8 @@ export default function ExpenditureDashboard() {
       ...buckets[key],
     })))
     setSummary({ preTax, tax, grand: preTax + tax })
-  }, [rawItems, orderDateMap, granularity, selectedCats])
+  }, [rawItems, orderDateMap, granularity, selectedCats, dept])
 
-  // All category names including synthetic 'Uncategorised'
   const allCats = [...categories.map(c => c.name), 'Uncategorised']
   const isAllSelected = allCats.length > 0 && allCats.every(c => selectedCats.has(c))
 
@@ -212,7 +264,6 @@ export default function ExpenditureDashboard() {
   }
   function selectAll() { setSelectedCats(new Set(allCats)) }
 
-  // Lines to render: selected cats that have any data in chart
   const activeCatsInData = new Set(chartData.flatMap(row => Object.keys(row).filter(k => k !== 'period')))
   const chartLines = allCats.filter(c => selectedCats.has(c) && activeCatsInData.has(c))
 
@@ -223,7 +274,22 @@ export default function ExpenditureDashboard() {
       <Navbar profile={profile} onSignOut={signOut} />
 
       <div className="max-w-7xl mx-auto px-4 py-6 sm:px-6">
-        <h1 className="text-xl font-bold text-gray-900 mb-6">Expenditure Dashboard</h1>
+        <h1 className="text-xl font-bold text-gray-900 mb-4">Expenditure Dashboard</h1>
+
+        {/* Department toggle */}
+        <div className="flex bg-gray-100 p-1 rounded-xl mb-5 max-w-xs">
+          {[['kitchen', '🍳 Kitchen'], ['housekeeping', '🧹 Housekeeping']].map(([val, label]) => (
+            <button
+              key={val}
+              onClick={() => setDept(val)}
+              className={`flex-1 py-2 text-sm font-medium rounded-lg transition-colors ${
+                dept === val ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-700'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
 
         {/* ── Controls ── */}
         <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 mb-5 space-y-4">
@@ -397,8 +463,11 @@ export default function ExpenditureDashboard() {
           <CategoryMapper
             categories={categories}
             onCategoriesChange={newCats => {
-              setCategories(newCats)
-              setSelectedCats(new Set([...newCats.map(c => c.name), 'Uncategorised']))
+              // Only apply kitchen category updates when in kitchen mode
+              if (dept === 'kitchen') {
+                setCategories(newCats)
+                setSelectedCats(new Set([...newCats.map(c => c.name), 'Uncategorised']))
+              }
             }}
           />
         )}
