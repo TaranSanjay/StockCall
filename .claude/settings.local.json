@@ -3,7 +3,9 @@
     "allow": [
       "Bash(npm run *)",
       "Bash(npm install *)",
-      "Bash(gh auth *)"
+      "Bash(gh auth *)",
+      "Bash(cp \"C:\\\\Users\\\\Taran\\\\AppData\\\\Local\\\\Temp\\\\claude\\\\c--Users-Taran-Miscellaneous-Desktop-Projects-Kitchen-Inventory-Tracking-With-Only-Suppliers-StockCall---2\\\\85acabd6-5481-4ffd-bf0f-ec43f951fb71\\\\scratchpad\\\\preview.js\" ./preview.cjs)",
+      "Bash(node preview.cjs)"
     ]
   }
 }
