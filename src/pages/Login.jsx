@@ -7,7 +7,7 @@ const USERNAME_TO_EMAIL = {
   sanjay:  'odanbeer+sanjay@gmail.com',
   taran:   'odanbeer+taran@gmail.com',
   rekha:   'odanbeer+rekha@gmail.com',
-  bhaskar: 'odanbeer+bhaskar@gmail.com',
+  bhaskar: 'odanbeer+bhasker@gmail.com',
 }
 
 export default function Login() {
