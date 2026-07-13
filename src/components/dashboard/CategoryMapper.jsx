@@ -46,8 +46,8 @@ export default function CategoryMapper({ categories, onCategoriesChange }) {
           .select(`
             id, item_name,
             hk_item_categories(
-              id, category_id,
-              category:hk_categories!category_id(id, name)
+              id, hk_category_id,
+              category:hk_categories!hk_category_id(id, name)
             )
           `)
           .eq('is_active', true)
@@ -68,17 +68,27 @@ export default function CategoryMapper({ categories, onCategoriesChange }) {
   // Which field holds category assignments on each item
   const catField = dept === 'kitchen' ? 'item_categories' : 'hk_item_categories'
 
-  const uncategorised = items.filter(i => !(i[catField]?.length > 0))
-  const categorised   = items.filter(i =>   i[catField]?.length > 0)
+  // The junction table has a unique FK per item, so PostgREST embeds it as a
+  // single object (not an array) — normalise so callers don't need to care.
+  function getCatRel(item) {
+    const rel = item[catField]
+    if (!rel) return null
+    return Array.isArray(rel) ? (rel[0] ?? null) : rel
+  }
+
+  const uncategorised = items.filter(i => !getCatRel(i))
+  const categorised   = items.filter(i =>   getCatRel(i))
 
   const grouped = {}
   for (const item of categorised) {
-    const catName = item[catField][0].category?.name ?? 'Unknown'
+    const catName = getCatRel(item)?.category?.name ?? 'Unknown'
     if (!grouped[catName]) grouped[catName] = []
     grouped[catName].push(item)
   }
 
   const junctionTable = dept === 'kitchen' ? 'item_categories' : 'hk_item_categories'
+  const itemFkField   = dept === 'kitchen' ? 'checklist_item_id' : 'hk_checklist_item_id'
+  const catFkField     = dept === 'kitchen' ? 'category_id' : 'hk_category_id'
 
   async function assignCategory(itemId, catId) {
     if (!catId) return
@@ -89,8 +99,8 @@ export default function CategoryMapper({ categories, onCategoriesChange }) {
       const { error } = await supabase
         .from(junctionTable)
         .upsert(
-          { checklist_item_id: itemId, category_id: catId },
-          { onConflict: 'checklist_item_id' }
+          { [itemFkField]: itemId, [catFkField]: catId },
+          { onConflict: itemFkField }
         )
       if (error) throw error
       setSuccess(p => ({ ...p, [itemId]: true }))
@@ -224,7 +234,7 @@ export default function CategoryMapper({ categories, onCategoriesChange }) {
                               {item.item_name}
                             </span>
                             <select
-                              value={item[catField][0]?.category_id ?? ''}
+                              value={getCatRel(item)?.[catFkField] ?? ''}
                               onChange={e => assignCategory(item.id, e.target.value)}
                               disabled={saving[item.id]}
                               className={selCls}

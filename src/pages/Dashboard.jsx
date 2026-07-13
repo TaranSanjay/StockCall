@@ -1,6 +1,5 @@
 import Navbar from '../components/shared/Navbar'
-import AllRequests from '../components/chef/AllRequests'
-import PendingQueue from '../components/manager/PendingQueue'
+import RequestsView from '../components/manager/RequestsView'
 import { useAuth } from '../hooks/useAuth'
 
 export default function Dashboard() {
@@ -25,10 +24,7 @@ export default function Dashboard() {
   return (
     <div className="min-h-screen bg-gray-50">
       <Navbar profile={profile} onSignOut={signOut} />
-      {(profile.role === 'chef' || profile.role === 'housekeeper')
-        ? <AllRequests />
-        : <PendingQueue />
-      }
+      <RequestsView />
     </div>
   )
 }

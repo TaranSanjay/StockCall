@@ -9,7 +9,8 @@ export default function Navbar({ profile, onSignOut }) {
   const [pendingCount, setPendingCount]                 = useState(0)
   const [pendingOrdersCount, setPendingOrdersCount]     = useState(0)
   const [pendingRequestsCount, setPendingRequestsCount] = useState(0)
-  const isManager = ['manager', 'supermanager', 'admin'].includes(profile?.role)
+  const isManager      = ['manager', 'supermanager', 'admin'].includes(profile?.role)
+  const isSuperManager = ['supermanager', 'admin'].includes(profile?.role)
   const location  = useLocation()
   const menuRef   = useRef(null)
 
@@ -17,12 +18,10 @@ export default function Navbar({ profile, onSignOut }) {
   useEffect(() => {
     if (!isManager) return
 
-    if (profile?.username === 'taran') {
-      Promise.all([
-        supabase.from('pending_checklist_items').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
-        supabase.from('pending_hk_checklist_items').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
-      ]).then(([{ count: c1 }, { count: c2 }]) => setPendingCount((c1 ?? 0) + (c2 ?? 0)))
-    }
+    Promise.all([
+      supabase.from('pending_checklist_items').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
+      supabase.from('pending_hk_checklist_items').select('id', { count: 'exact', head: true }).eq('status', 'pending'),
+    ]).then(([{ count: c1 }, { count: c2 }]) => setPendingCount((c1 ?? 0) + (c2 ?? 0)))
 
     supabase
       .from('requests')
@@ -134,17 +133,15 @@ export default function Navbar({ profile, onSignOut }) {
                     <NavLink to="/logs" onClick={close} className={menuLinkClass}>
                       <span>📄</span> Logs
                     </NavLink>
-                    {profile?.username === 'taran' && (
-                      <NavLink to="/new-items" onClick={close} className={menuLinkClass}>
-                        <span>✨</span> New Items
-                        {pendingCount > 0 && (
-                          <span className="ml-auto w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
-                            {pendingCount > 9 ? '9+' : pendingCount}
-                          </span>
-                        )}
-                      </NavLink>
-                    )}
-                    {(profile?.role === 'supermanager' || profile?.role === 'admin') && (
+                    <NavLink to="/new-items" onClick={close} className={menuLinkClass}>
+                      <span>✨</span> New Items
+                      {pendingCount > 0 && (
+                        <span className="ml-auto w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
+                          {pendingCount > 9 ? '9+' : pendingCount}
+                        </span>
+                      )}
+                    </NavLink>
+                    {isSuperManager && (
                       <NavLink to="/dashboard/expenditure" onClick={close} className={menuLinkClass}>
                         <span>📊</span> Expenditure
                       </NavLink>
@@ -166,10 +163,10 @@ export default function Navbar({ profile, onSignOut }) {
         </div>
 
         {/* Right: desktop nav links (md and above) */}
-        {(isManager || profile?.role === 'housekeeper') && (
+        {isManager && (
           <div className="ml-auto hidden md:flex items-center gap-1">
 
-            {/* Requests — shown to managers and housekeepers */}
+            {/* Requests */}
             <NavLink
               to="/dashboard"
               end
@@ -215,24 +212,22 @@ export default function Navbar({ profile, onSignOut }) {
                 >
                   Logs
                 </NavLink>
-                {profile?.username === 'taran' && (
-                  <NavLink
-                    to="/new-items"
-                    className={({ isActive }) =>
-                      `text-sm px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors ${
-                        isActive ? 'text-blue-600 font-medium bg-blue-50' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
-                      }`
-                    }
-                  >
-                    New Items
-                    {pendingCount > 0 && (
-                      <span className="w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
-                        {pendingCount > 9 ? '9+' : pendingCount}
-                      </span>
-                    )}
-                  </NavLink>
-                )}
-                {(profile?.role === 'supermanager' || profile?.role === 'admin') && (
+                <NavLink
+                  to="/new-items"
+                  className={({ isActive }) =>
+                    `text-sm px-3 py-1.5 rounded-lg flex items-center gap-1.5 transition-colors ${
+                      isActive ? 'text-blue-600 font-medium bg-blue-50' : 'text-gray-600 hover:text-gray-900 hover:bg-gray-100'
+                    }`
+                  }
+                >
+                  New Items
+                  {pendingCount > 0 && (
+                    <span className="w-4 h-4 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center leading-none">
+                      {pendingCount > 9 ? '9+' : pendingCount}
+                    </span>
+                  )}
+                </NavLink>
+                {isSuperManager && (
                   <NavLink
                     to="/dashboard/expenditure"
                     className={({ isActive }) =>

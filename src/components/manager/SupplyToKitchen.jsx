@@ -4,11 +4,7 @@ import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../hooks/useAuth'
 import { logError } from '../../lib/logError'
 import Navbar from '../shared/Navbar'
-
-const MEAL_LABELS = {
-  breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner',
-  snacks: 'Snacks', other: 'Other',
-}
+import PurposeBadge from '../shared/PurposeBadge'
 
 const UNIT_NORM = { pcs: 'pieces', piece: 'pieces', L: 'litre', liters: 'litre', liter: 'litre',
                     dozen: 'dozens', pack: 'packets', packet: 'packets' }
@@ -648,12 +644,9 @@ export default function SupplyToKitchen() {
         {/* Context */}
         {request && chef && (
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 mb-5">
-            <div className="flex flex-wrap gap-x-6 gap-y-2 text-base text-gray-700">
-              <span><span className="text-gray-400 text-sm font-semibold uppercase tracking-wider mr-1.5">Requester</span>{chef.full_name}</span>
-              {request.meal_purpose
-                ? <span><span className="text-gray-400 text-sm font-semibold uppercase tracking-wider mr-1.5">Purpose</span>{MEAL_LABELS[request.meal_purpose] ?? request.meal_purpose}</span>
-                : <span><span className="text-gray-400 text-sm font-semibold uppercase tracking-wider mr-1.5">Department</span><span className="bg-teal-100 text-teal-700 text-xs rounded-full px-2 py-0.5">🧹 Housekeeping</span></span>
-              }
+            <div className="flex flex-wrap items-center gap-x-6 gap-y-2 text-base text-gray-700">
+              <span><span className="text-gray-400 text-sm font-semibold uppercase tracking-wider mr-1.5">Requested By</span>{chef.full_name}</span>
+              <span><span className="text-gray-400 text-sm font-semibold uppercase tracking-wider mr-1.5">Purpose</span><PurposeBadge purpose={request.meal_purpose} /></span>
               {order?.vendor_name && (
                 <span><span className="text-gray-400 text-sm font-semibold uppercase tracking-wider mr-1.5">Vendor</span>{order.vendor_name}</span>
               )}

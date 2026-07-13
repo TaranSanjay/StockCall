@@ -3,17 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../hooks/useAuth'
 import Navbar from '../shared/Navbar'
-
-const MEAL_LABELS = {
-  breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner',
-  snacks: 'Snacks', other: 'Other',
-}
-
-function DeptTag({ department }) {
-  return department === 'housekeeping'
-    ? <span className="bg-teal-100 text-teal-700 text-xs rounded-full px-2 py-0.5">🧹 Housekeeping</span>
-    : <span className="bg-orange-100 text-orange-700 text-xs rounded-full px-2 py-0.5">🍳 Kitchen</span>
-}
+import PurposeBadge from '../shared/PurposeBadge'
 
 function fmtDate(dateStr) {
   if (!dateStr) return '—'
@@ -24,15 +14,32 @@ function fmtDate(dateStr) {
   return `${dd}/${mm}/${yy}`
 }
 
-function OrderBadge({ hasOrder }) {
-  return hasOrder ? (
-    <span className="flex-shrink-0 inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">
-      Order Placed
-    </span>
-  ) : (
-    <span className="flex-shrink-0 inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-700">
-      Order Pending
-    </span>
+function RequestCard({ req, action }) {
+  const items = req.request_items ?? []
+  return (
+    <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
+      <div className="flex items-start justify-between gap-3 mb-2">
+        <div className="min-w-0">
+          <p className="text-base font-bold text-gray-900">{req.chef?.full_name ?? 'Unknown manager'}</p>
+          <div className="mt-0.5">
+            <PurposeBadge purpose={req.meal_purpose} />
+          </div>
+        </div>
+        {req.hasOrder && (
+          <span className="flex-shrink-0 inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-green-100 text-green-700">
+            Order Placed
+          </span>
+        )}
+      </div>
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-400">
+          <span>{items.length} item{items.length !== 1 ? 's' : ''}</span>
+          <span>·</span>
+          <span>Submitted {fmtDate(req.submitted_at)}</span>
+        </div>
+        {action}
+      </div>
+    </div>
   )
 }
 
@@ -40,63 +47,74 @@ export default function OrdersQueue() {
   const { profile, signOut } = useAuth()
   const navigate = useNavigate()
 
-  const [requests, setRequests] = useState([])
-  const [loading, setLoading]   = useState(true)
-  const [loadError, setLoadError] = useState(null)
-  const [filter, setFilter]     = useState('pending') // 'pending' | 'all'
+  const [readyToOrder, setReadyToOrder] = useState([])
+  const [ordersPlaced, setOrdersPlaced] = useState([])
+  const [activeTab, setActiveTab]       = useState('ready')
+  const [loading, setLoading]           = useState(true)
+  const [loadError, setLoadError]       = useState(null)
 
   const load = useCallback(async () => {
     setLoading(true)
     setLoadError(null)
     try {
-      const { data: reqs, error: reqErr } = await supabase
+      const { data: orders, error: ordErr } = await supabase
+        .from('orders')
+        .select('id, request_id, order_items(id)')
+        .limit(200)
+      if (ordErr) throw ordErr
+      const orderedIds = new Set((orders ?? []).map(o => o.request_id))
+
+      const { data: submittedReqs, error: reqErr } = await supabase
         .from('requests')
-        .select('*, request_items(id, item_status)')
-        .eq('status', 'closed')
-        .order('updated_at', { ascending: false })
+        .select('*, request_items(id)')
+        .eq('status', 'submitted')
+        .order('submitted_at', { ascending: true })
         .limit(100)
       if (reqErr) throw reqErr
 
-      if (!reqs?.length) { setRequests([]); setLoading(false); return }
+      const ready = (submittedReqs ?? []).filter(r => !orderedIds.has(r.id))
 
-      const chefIds = [...new Set(reqs.map(r => r.chef_id))]
+      let placed = []
+      if (orderedIds.size) {
+        const { data: placedReqs, error: placedErr } = await supabase
+          .from('requests')
+          .select('*, request_items(id)')
+          .in('id', [...orderedIds])
+          .order('updated_at', { ascending: false })
+          .limit(100)
+        if (placedErr) throw placedErr
+        placed = placedReqs ?? []
+      }
+
+      const chefIds = [...new Set([...ready, ...placed].map(r => r.chef_id))]
       const { data: chefProfiles, error: profErr } = await supabase
         .from('profiles').select('id, full_name').in('id', chefIds)
       if (profErr) throw profErr
       const pMap = Object.fromEntries((chefProfiles ?? []).map(p => [p.id, p]))
 
-      const { data: ordersData, error: ordErr } = await supabase
-        .from('orders').select('id, request_id, order_items(id)')
-        .in('request_id', reqs.map(r => r.id))
-      if (ordErr) throw ordErr
-      const orderedIds = new Set((ordersData ?? []).map(o => o.request_id))
-
-      const allOrderItemIds = (ordersData ?? []).flatMap(o => (o.order_items ?? []).map(oi => oi.id))
+      // Supply status for placed orders
+      const orderItemIds = (orders ?? []).flatMap(o => (o.order_items ?? []).map(oi => oi.id))
       let suppliedItemIds = new Set()
-      if (allOrderItemIds.length) {
+      if (orderItemIds.length) {
         const { data: slogs, error: slogErr } = await supabase
           .from('supply_logs').select('order_item_id')
-          .in('order_item_id', allOrderItemIds)
+          .in('order_item_id', orderItemIds)
         if (slogErr) throw slogErr
         suppliedItemIds = new Set((slogs ?? []).map(sl => sl.order_item_id))
       }
-
       const supplyStatusMap = {}
-      ;(ordersData ?? []).forEach(o => {
+      ;(orders ?? []).forEach(o => {
         const ois = o.order_items ?? []
         supplyStatusMap[o.request_id] = ois.length > 0 && ois.every(oi => suppliedItemIds.has(oi.id))
       })
 
-      setRequests(
-        reqs
-          .filter(r => (r.request_items ?? []).some(i => i.item_status === 'approved'))
-          .map(r => ({
-            ...r,
-            chef:            pMap[r.chef_id] ?? null,
-            hasOrder:        orderedIds.has(r.id),
-            isFullySupplied: supplyStatusMap[r.id] ?? false,
-          }))
-      )
+      setReadyToOrder(ready.map(r => ({ ...r, chef: pMap[r.chef_id] ?? null, hasOrder: false })))
+      setOrdersPlaced(placed.map(r => ({
+        ...r,
+        chef: pMap[r.chef_id] ?? null,
+        hasOrder: true,
+        isFullySupplied: supplyStatusMap[r.id] ?? false,
+      })))
       setLoading(false)
     } catch {
       setLoadError('Something went wrong. Please refresh and try again.')
@@ -105,10 +123,6 @@ export default function OrdersQueue() {
   }, [])
 
   useEffect(() => { load() }, [load])
-
-  const displayed = filter === 'pending'
-    ? requests.filter(r => !r.hasOrder)
-    : requests
 
   if (loading) {
     return (
@@ -141,87 +155,87 @@ export default function OrdersQueue() {
           </button>
         </div>
 
-        {/* Filter toggle */}
-        <div className="flex bg-gray-100 p-1 rounded-xl mb-5">
-          {[['pending', 'Order Pending'], ['all', 'All Orders']].map(([val, label]) => (
-            <button
-              key={val}
-              onClick={() => setFilter(val)}
-              className={`flex-1 py-2 text-base font-medium rounded-lg transition-colors min-h-[44px] ${
-                filter === val ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'
-              }`}
-            >
-              {label}
-            </button>
-          ))}
+        {/* Tab bar */}
+        <div className="border-b border-gray-200 flex mb-6">
+          <button
+            onClick={() => setActiveTab('ready')}
+            className={activeTab === 'ready'
+              ? 'border-b-2 border-blue-600 text-blue-600 font-medium bg-white px-6 py-3 text-sm'
+              : 'text-gray-500 hover:text-gray-700 bg-white px-6 py-3 text-sm border-b-2 border-transparent'}
+          >
+            Ready to Order ({readyToOrder.length})
+          </button>
+          <button
+            onClick={() => setActiveTab('placed')}
+            className={activeTab === 'placed'
+              ? 'border-b-2 border-blue-600 text-blue-600 font-medium bg-white px-6 py-3 text-sm'
+              : 'text-gray-500 hover:text-gray-700 bg-white px-6 py-3 text-sm border-b-2 border-transparent'}
+          >
+            Orders Placed ({ordersPlaced.length})
+          </button>
         </div>
 
-        {requests.length === 100 && (
-          <p className="text-xs text-gray-400 text-center py-3 mb-2">
-            Showing most recent 100 results. Use filters to narrow down.
-          </p>
+        {/* Tab content */}
+        {activeTab === 'ready' && (
+          readyToOrder.length === 0 ? (
+            <div className="text-center py-12">
+              <p className="text-4xl mb-2">✅</p>
+              <p className="text-base text-gray-500">No requests waiting for an order.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {readyToOrder.map(req => (
+                <RequestCard
+                  key={req.id}
+                  req={req}
+                  action={
+                    <button
+                      onClick={() => navigate(`/requests/${req.id}/order`)}
+                      className="text-sm font-semibold text-white bg-blue-600 hover:bg-blue-700 px-4 py-2 rounded-lg transition-colors whitespace-nowrap"
+                    >
+                      Place Order →
+                    </button>
+                  }
+                />
+              ))}
+            </div>
+          )
         )}
 
-        {/* Empty state */}
-        {displayed.length === 0 ? (
-          <div className="text-center py-20">
-            <p className="text-5xl mb-3">📦</p>
-            <p className="text-base text-gray-500">
-              {filter === 'pending'
-                ? 'No orders pending. All caught up!'
-                : 'No closed requests yet.'}
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-3">
-            {displayed.map(req => {
-              const items    = req.request_items ?? []
-              const approved = items.filter(i => i.item_status === 'approved').length
-
-              return (
-                <div
+        {activeTab === 'placed' && (
+          ordersPlaced.length === 0 ? (
+            <div className="text-center py-12">
+              <p className="text-4xl mb-2">📦</p>
+              <p className="text-base text-gray-500">No orders placed yet.</p>
+            </div>
+          ) : (
+            <div className="space-y-3">
+              {ordersPlaced.map(req => (
+                <RequestCard
                   key={req.id}
-                  onClick={() => navigate(`/requests/${req.id}/order`)}
-                  className="w-full text-left bg-white rounded-xl border border-gray-200 shadow-sm p-4 hover:border-blue-300 hover:shadow-md transition-all cursor-pointer"
-                >
-                  <div className="flex items-start justify-between gap-3 mb-2">
-                    <div className="min-w-0">
-                      <p className="text-base font-bold text-gray-900">{req.chef?.full_name ?? 'Unknown chef'}</p>
-                      <div className="flex items-center gap-2 flex-wrap mt-0.5">
-                        {req.meal_purpose && (
-                          <p className="text-base text-gray-600">{MEAL_LABELS[req.meal_purpose] ?? req.meal_purpose}</p>
-                        )}
-                        <DeptTag department={req.department} />
-                      </div>
-                    </div>
-                    <div className="flex flex-col items-end gap-1.5 flex-shrink-0">
-                      <OrderBadge hasOrder={req.hasOrder} />
-                      {req.hasOrder && req.isFullySupplied && (
-                        <span className="inline-flex items-center px-2.5 py-1 rounded-full text-xs font-semibold bg-gray-100 text-gray-500">
-                          Supplied
-                        </span>
-                      )}
-                    </div>
-                  </div>
-                  <div className="flex flex-wrap items-center justify-between gap-2">
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-gray-400">
-                      <span>{approved} approved item{approved !== 1 ? 's' : ''}</span>
-                      <span>·</span>
-                      <span>Closed {fmtDate(req.updated_at)}</span>
-                    </div>
-                    {req.hasOrder && !req.isFullySupplied && (
+                  req={req}
+                  action={
+                    <div className="flex gap-2">
                       <button
-                        onClick={e => { e.stopPropagation(); navigate(`/requests/${req.id}/supply`) }}
+                        onClick={() => navigate(`/requests/${req.id}/order`)}
                         className="text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap"
                       >
-                        Supply to Kitchen →
+                        View Order
                       </button>
-                    )}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
+                      {!req.isFullySupplied && (
+                        <button
+                          onClick={() => navigate(`/requests/${req.id}/supply`)}
+                          className="text-xs font-semibold text-blue-600 bg-blue-50 hover:bg-blue-100 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap"
+                        >
+                          Supply to Kitchen →
+                        </button>
+                      )}
+                    </div>
+                  }
+                />
+              ))}
+            </div>
+          )
         )}
       </div>
     </div>

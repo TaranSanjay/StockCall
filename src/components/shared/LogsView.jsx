@@ -3,13 +3,11 @@ import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../hooks/useAuth'
 import Navbar from './Navbar'
 import StatusBadge from './StatusBadge'
+import PurposeBadge from './PurposeBadge'
+import { PURPOSE_OPTIONS } from '../../lib/purposes'
 
-const MEAL_LABELS = {
-  breakfast: 'Breakfast', lunch: 'Lunch', dinner: 'Dinner',
-  snacks: 'Snacks', other: 'Other',
-}
-const ALL_TABS    = ['Requests', 'Orders', 'Supply', 'Storage', 'Receipts', 'Errors']
-const PUBLIC_TABS = ALL_TABS.slice(0, 5)
+const ALL_TABS    = ['Requests', 'Orders', 'Supply', 'Storage', 'Errors']
+const PUBLIC_TABS = ALL_TABS.slice(0, 4)
 
 function fmt(d) {
   if (!d) return '—'
@@ -130,12 +128,6 @@ function PaymentPill({ method }) {
   return <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${cls}`}>{label}</span>
 }
 
-function DeptTag({ department }) {
-  return department === 'housekeeping'
-    ? <span className="bg-teal-100 text-teal-700 text-xs rounded-full px-2 py-0.5">🧹 Housekeeping</span>
-    : <span className="bg-orange-100 text-orange-700 text-xs rounded-full px-2 py-0.5">🍳 Kitchen</span>
-}
-
 // ── Tab 1 — Requests ──────────────────────────────────────────────────────────
 
 function RequestsTab() {
@@ -163,11 +155,7 @@ function RequestsTab() {
   const displayed = data.filter(r =>
     inRange(r.created_at, dateFrom, dateTo) &&
     (!chefF   || r.chef?.full_name === chefF) &&
-    (!mealF   || (
-      mealF === 'housekeeping'
-        ? r.department === 'housekeeping'
-        : (r.department ?? 'kitchen') === 'kitchen'
-    )) &&
+    (!mealF   || r.meal_purpose === mealF) &&
     (!statusF || r.status === statusF)
   )
 
@@ -199,11 +187,10 @@ function RequestsTab() {
     <div>
       {modal && (
         <Modal
-          title={modal.department === 'housekeeping'
-            ? `Housekeeping Request — ${modal.chef?.full_name ?? '—'}`
-            : `${MEAL_LABELS[modal.meal_purpose] ?? modal.meal_purpose} — ${modal.chef?.full_name ?? '—'}`}
+          title={`${modal.chef?.full_name ?? '—'}`}
           onClose={() => setModal(null)}
         >
+          <div className="mb-3"><PurposeBadge purpose={modal.meal_purpose} /></div>
           <ItemList req={modal} />
         </Modal>
       )}
@@ -212,17 +199,16 @@ function RequestsTab() {
         <FRow>
           <FField label="From"><input type="date" value={dateFrom} onChange={e => setFrom(e.target.value)} className={iCls} /></FField>
           <FField label="To"><input type="date" value={dateTo} onChange={e => setTo(e.target.value)} className={iCls} /></FField>
-          <FField label="Requester">
+          <FField label="Requested By">
             <select value={chefF} onChange={e => setChef(e.target.value)} className={sCls}>
-              <option value="">All requesters</option>
+              <option value="">All</option>
               {chefs.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </FField>
           <FField label="Purpose">
             <select value={mealF} onChange={e => setMeal(e.target.value)} className={sCls}>
               <option value="">All purposes</option>
-              <option value="kitchen">Kitchen</option>
-              <option value="housekeeping">Housekeeping</option>
+              {PURPOSE_OPTIONS.map(p => <option key={p.value} value={p.value}>{p.label}</option>)}
             </select>
           </FField>
         </FRow>
@@ -261,10 +247,7 @@ function RequestsTab() {
                     <div>
                       <p className="text-sm font-bold text-gray-900">{req.chef?.full_name ?? '—'}</p>
                       <div className="mt-0.5">
-                        {req.department === 'housekeeping'
-                          ? <span className="bg-teal-100 text-teal-700 text-xs rounded-full px-2 py-0.5">🧹 Housekeeping</span>
-                          : <span className="bg-orange-100 text-orange-700 text-xs rounded-full px-2 py-0.5">🍳 Kitchen</span>
-                        }
+                        <PurposeBadge purpose={req.meal_purpose} />
                       </div>
                       <p className="text-xs text-gray-400 mt-0.5">{fmt(req.created_at)}</p>
                     </div>
@@ -292,7 +275,7 @@ function RequestsTab() {
           {/* Desktop table */}
           <div className="hidden md:block bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
             <table className="w-full text-sm">
-              <THead cols={['Date & Time', 'Requester', 'Purpose', 'Status', 'Reviewed By', 'Items', '']} />
+              <THead cols={['Date & Time', 'Requested By', 'Purpose', 'Status', 'Reviewed By', 'Items', '']} />
               <tbody className="divide-y divide-gray-100">
                 {displayed.map(req => {
                   const items    = req.request_items ?? []
@@ -304,10 +287,7 @@ function RequestsTab() {
                       <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{fmt(req.created_at)}</td>
                       <td className="px-4 py-3 font-medium text-gray-900">{req.chef?.full_name ?? '—'}</td>
                       <td className="px-4 py-3 text-gray-700">
-                        {req.department === 'housekeeping'
-                          ? <span className="bg-teal-100 text-teal-700 text-xs rounded-full px-2 py-0.5">🧹 Housekeeping</span>
-                          : <span className="bg-orange-100 text-orange-700 text-xs rounded-full px-2 py-0.5">🍳 Kitchen</span>
-                        }
+                        <PurposeBadge purpose={req.meal_purpose} />
                       </td>
                       <td className="px-4 py-3"><StatusBadge status={req.status} /></td>
                       <td className="px-4 py-3 text-gray-700">{reviewer}</td>
@@ -529,7 +509,7 @@ function OrdersTab() {
                     <p className="text-sm font-bold text-gray-900">₹{grand.toFixed(2)}</p>
                   </div>
                   <p className="text-xs text-gray-500 mb-2">
-                    Requester: {order.request?.chef?.full_name ?? '—'}
+                    Requested By: {order.request?.chef?.full_name ?? '—'}
                     {order.request?.department === 'housekeeping' && (
                       <span className="bg-teal-100 text-teal-700 text-xs rounded-full px-1.5 py-0.5 ml-1">🧹</span>
                     )}
@@ -551,7 +531,7 @@ function OrdersTab() {
           {/* Desktop table */}
           <div className="hidden md:block bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
             <table className="w-full text-sm">
-              <THead cols={['Date & Time', 'Placed By', 'Requester', 'Vendor', 'Items', 'Grand Total', '']} />
+              <THead cols={['Date & Time', 'Placed By', 'Requested By', 'Vendor', 'Items', 'Grand Total', '']} />
               <tbody className="divide-y divide-gray-100">
                 {displayed.map(order => {
                   return (
@@ -659,9 +639,9 @@ function SupplyTab() {
               {suppliers.map(p => <option key={p} value={p}>{p}</option>)}
             </select>
           </FField>
-          <FField label="Requester">
+          <FField label="Requested By">
             <select value={chefF} onChange={e => setChef(e.target.value)} className={sCls}>
-              <option value="">All requesters</option>
+              <option value="">All</option>
               {chefs.map(c => <option key={c} value={c}>{c}</option>)}
             </select>
           </FField>
@@ -696,7 +676,7 @@ function SupplyTab() {
                     <p className="text-xs text-gray-400 whitespace-nowrap">{fmt(s.supplied_at)}</p>
                   </div>
                   <p className="text-sm text-gray-600">
-                    By {suppliedBy} · Requester: {chef}
+                    By {suppliedBy} · Requested By: {chef}
                     {oi.order?.request?.department === 'housekeeping' && (
                       <span className="bg-teal-100 text-teal-700 text-xs rounded-full px-1.5 py-0.5 ml-1">🧹</span>
                     )}
@@ -718,7 +698,7 @@ function SupplyTab() {
           {/* Desktop table */}
           <div className="hidden md:block bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
             <table className="w-full text-sm">
-              <THead cols={['Date & Time', 'Supplied By', 'Requester', 'Item', 'Requested', 'Ordered', 'Supplied', 'Diff', 'Reason']} />
+              <THead cols={['Date & Time', 'Supplied By', 'Requested By', 'Item', 'Requested', 'Ordered', 'Supplied', 'Diff', 'Reason']} />
               <tbody className="divide-y divide-gray-100">
                 {displayed.map(s => {
                   const oi         = s.order_item ?? {}
@@ -1028,187 +1008,7 @@ function StorageTab() {
   )
 }
 
-// ── Tab 5 — Receipts ──────────────────────────────────────────────────────────
-
-function ReceiptsTab() {
-  const [data, setData]           = useState([])
-  const [loading, setLoading]     = useState(true)
-  const [loadError, setLoadError] = useState(null)
-  const [dateFrom, setFrom]       = useState('')
-  const [dateTo, setTo]           = useState('')
-  const [chefF, setChef]          = useState('')
-  const [itemSearch, setSearch]   = useState('')
-
-  useEffect(() => {
-    async function load() {
-      setLoading(true)
-      setLoadError(null)
-      try {
-        const { data: receipts, error: recErr } = await supabase
-          .from('receipt_confirmations')
-          .select('*')
-          .order('confirmed_at', { ascending: false })
-          .limit(100)
-        if (recErr) throw recErr
-        if (!receipts?.length) { setData([]); setLoading(false); return }
-
-        const supplyLogIds = receipts.map(r => r.supply_log_id)
-        const { data: supplyLogs, error: slErr } = await supabase
-          .from('supply_logs').select('*').in('id', supplyLogIds)
-        if (slErr) throw slErr
-
-        const orderItemIds = (supplyLogs ?? []).map(s => s.order_item_id)
-        const { data: orderItems, error: oiErr } = await supabase
-          .from('order_items').select('*').in('id', orderItemIds)
-        if (oiErr) throw oiErr
-
-        const orderIds = [...new Set((orderItems ?? []).map(oi => oi.order_id))]
-        const { data: orders, error: ordErr } = await supabase
-          .from('orders').select('*').in('id', orderIds)
-        if (ordErr) throw ordErr
-
-        const requestIds = [...new Set((orders ?? []).map(o => o.request_id))]
-        const { data: requests, error: reqErr } = await supabase
-          .from('requests').select('*').in('id', requestIds)
-        if (reqErr) throw reqErr
-
-        const profileIds = [...new Set([
-          ...receipts.map(r => r.confirmed_by),
-          ...(requests ?? []).map(r => r.chef_id),
-        ].filter(Boolean))]
-        const { data: profiles, error: profErr } = await supabase
-          .from('profiles').select('id, full_name').in('id', profileIds)
-        if (profErr) throw profErr
-        const profileMap = Object.fromEntries((profiles ?? []).map(p => [p.id, p.full_name]))
-
-        const assembled = receipts.map(receipt => {
-          const supplyLog = (supplyLogs ?? []).find(s => s.id === receipt.supply_log_id)
-          const orderItem = (orderItems ?? []).find(oi => oi.id === supplyLog?.order_item_id)
-          const order     = (orders ?? []).find(o => o.id === orderItem?.order_id)
-          const request   = (requests ?? []).find(r => r.id === order?.request_id)
-          return {
-            id:                receipt.id,
-            confirmed_at:      receipt.confirmed_at,
-            confirmed_by_name: profileMap[receipt.confirmed_by] ?? 'Unknown',
-            quantity_received: receipt.quantity_received,
-            discrepancy_note:  receipt.discrepancy_note,
-            quantity_supplied: supplyLog?.quantity_supplied ?? null,
-            unit:              supplyLog?.unit ?? '',
-            difference_reason: supplyLog?.difference_reason ?? null,
-            item_name:         orderItem?.item_name ?? '—',
-            chef_name:         profileMap[request?.chef_id] ?? 'Unknown',
-            meal_purpose:      request?.meal_purpose ?? null,
-          }
-        })
-
-        setData(assembled)
-        setLoading(false)
-      } catch {
-        setLoadError('Something went wrong. Please refresh and try again.')
-        setLoading(false)
-      }
-    }
-    load()
-  }, [])
-
-  const chefs = [...new Set(data.map(r => r.chef_name).filter(Boolean))].sort()
-
-  const displayed = data.filter(r =>
-    inRange(r.confirmed_at, dateFrom, dateTo) &&
-    (!chefF      || r.chef_name === chefF) &&
-    (!itemSearch || r.item_name.toLowerCase().includes(itemSearch.toLowerCase()))
-  )
-
-  if (loading) return <Spinner />
-  if (loadError) return <p className="text-red-600 text-sm text-center py-4">{loadError}</p>
-
-  return (
-    <div>
-      <FiltersPanel>
-        <FRow>
-          <FField label="From"><input type="date" value={dateFrom} onChange={e => setFrom(e.target.value)} className={iCls} /></FField>
-          <FField label="To"><input type="date" value={dateTo} onChange={e => setTo(e.target.value)} className={iCls} /></FField>
-          <FField label="Chef">
-            <select value={chefF} onChange={e => setChef(e.target.value)} className={sCls}>
-              <option value="">All chefs</option>
-              {chefs.map(c => <option key={c} value={c}>{c}</option>)}
-            </select>
-          </FField>
-          <FField label="Item name">
-            <input type="text" value={itemSearch} onChange={e => setSearch(e.target.value)} placeholder="Search item…" className={iCls} />
-          </FField>
-        </FRow>
-      </FiltersPanel>
-
-      {data.length === 100 && (
-        <p className="text-xs text-gray-400 text-center py-3 mb-2">
-          Showing most recent 100 results. Use filters to narrow down.
-        </p>
-      )}
-      {displayed.length === 0 ? (
-        <EmptyState emoji="✅" message="No receipts found." />
-      ) : (
-        <>
-          {/* Mobile cards */}
-          <div className="md:hidden space-y-3">
-            {displayed.map(r => {
-              const discrepancy = Number(r.quantity_received) - Number(r.quantity_supplied)
-              return (
-                <div key={r.id} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4 space-y-1.5">
-                  <div className="flex items-start justify-between gap-2">
-                    <p className="text-sm font-bold text-gray-900">{r.item_name}</p>
-                    <p className="text-xs text-gray-400 whitespace-nowrap">{fmt(r.confirmed_at)}</p>
-                  </div>
-                  <p className="text-sm text-gray-600">By {r.confirmed_by_name} · Chef: {r.chef_name}</p>
-                  <div className="flex gap-4 text-sm text-gray-600 flex-wrap">
-                    <span>Supplied: {r.quantity_supplied} {r.unit}</span>
-                    <span>Received: {r.quantity_received} {r.unit}</span>
-                  </div>
-                  {discrepancy !== 0 && (
-                    <p className="text-sm text-red-600 font-medium">
-                      Discrepancy: {discrepancy > 0 ? '+' : ''}{Math.round(discrepancy * 10) / 10}{r.unit}
-                    </p>
-                  )}
-                  {r.discrepancy_note && <p className="text-xs text-gray-500 italic">"{r.discrepancy_note}"</p>}
-                </div>
-              )
-            })}
-          </div>
-
-          {/* Desktop table */}
-          <div className="hidden md:block bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
-            <table className="w-full text-sm">
-              <THead cols={['Date & Time', 'Confirmed By', 'Chef', 'Item', 'Supplied', 'Received', 'Discrepancy', 'Note']} />
-              <tbody className="divide-y divide-gray-100">
-                {displayed.map(r => {
-                  const discrepancy = Number(r.quantity_received) - Number(r.quantity_supplied)
-                  return (
-                    <tr key={r.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{fmt(r.confirmed_at)}</td>
-                      <td className="px-4 py-3 font-medium text-gray-900">{r.confirmed_by_name}</td>
-                      <td className="px-4 py-3 text-gray-700">{r.chef_name}</td>
-                      <td className="px-4 py-3 font-medium text-gray-900">{r.item_name}</td>
-                      <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{r.quantity_supplied} {r.unit}</td>
-                      <td className="px-4 py-3 text-gray-700 whitespace-nowrap">{r.quantity_received} {r.unit}</td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        {discrepancy === 0
-                          ? <span className="text-green-600 font-medium">—</span>
-                          : <span className="text-red-600 font-medium">{discrepancy > 0 ? '+' : ''}{Math.round(discrepancy * 10) / 10}{r.unit}</span>}
-                      </td>
-                      <td className="px-4 py-3 text-gray-500 italic text-xs max-w-xs truncate">{r.discrepancy_note ?? ''}</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
-        </>
-      )}
-    </div>
-  )
-}
-
-// ── Tab 6 — Errors (admin only) ───────────────────────────────────────────────
+// ── Tab 5 — Errors (admin only) ───────────────────────────────────────────────
 
 function ErrorsTab() {
   const [appErrors, setAppErrors]     = useState([])
@@ -1383,8 +1183,7 @@ export default function LogsView() {
         {activeTab === 1 && <OrdersTab />}
         {activeTab === 2 && <SupplyTab />}
         {activeTab === 3 && <StorageTab />}
-        {activeTab === 4 && <ReceiptsTab />}
-        {activeTab === 5 && isAdmin && <ErrorsTab />}
+        {activeTab === 4 && isAdmin && <ErrorsTab />}
       </div>
     </div>
   )

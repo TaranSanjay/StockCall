@@ -9,11 +9,9 @@ const STATUS_STYLES = {
   rejected:     'bg-red-100 text-red-700',
   pending:      'bg-amber-100 text-amber-700',
   // roles
-  admin:        'bg-purple-100 text-purple-700',
-  supermanager: 'bg-indigo-100 text-indigo-700',
+  admin:        'bg-red-100 text-red-700',
+  supermanager: 'bg-purple-100 text-purple-700',
   manager:      'bg-blue-100 text-blue-700',
-  chef:         'bg-orange-100 text-orange-700',
-  housekeeper:  'bg-teal-100 text-teal-700',
 }
 
 const STATUS_LABELS = {
@@ -28,8 +26,6 @@ const STATUS_LABELS = {
   admin:        'Admin',
   supermanager: 'Supermanager',
   manager:      'Manager',
-  chef:         'Chef',
-  housekeeper:  'Housekeeper',
 }
 
 export default function StatusBadge({ status }) {

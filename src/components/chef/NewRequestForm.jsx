@@ -1,17 +1,18 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../hooks/useAuth'
 import Navbar from '../shared/Navbar'
+import { PURPOSE_OPTIONS, PURPOSE_LABELS, departmentForPurpose } from '../../lib/purposes'
 
 const UNITS = ['kg', 'g', 'litre', 'ml', 'pieces', 'packets', 'dozens', 'other']
-const MEAL_PURPOSES = [
-  { value: 'breakfast', label: 'Breakfast' },
-  { value: 'lunch',     label: 'Lunch' },
-  { value: 'dinner',    label: 'Dinner' },
-  { value: 'snacks',    label: 'Snacks' },
-  { value: 'other',     label: 'Other' },
-]
+
+function checklistTableFor(purpose) {
+  return purpose === 'kitchen' ? 'checklist_items' : 'housekeeping_checklist_items'
+}
+function pendingTableFor(purpose) {
+  return purpose === 'kitchen' ? 'pending_checklist_items' : 'pending_hk_checklist_items'
+}
 
 async function processCustomItemsPipeline(requestId, profileId, checklistTable, pendingTable) {
   try {
@@ -66,26 +67,30 @@ export default function NewRequestForm() {
 
   const editingRequest = location.state?.request ?? null
 
-  const [mealPurpose, setMealPurpose]           = useState(editingRequest?.meal_purpose ?? '')
+  const [purpose, setPurpose]                   = useState(editingRequest?.meal_purpose ?? '')
   const [notes, setNotes]                       = useState(editingRequest?.notes ?? '')
-  const [checklistItems, setChecklistItems]     = useState([])
+  const [kitchenChecklist, setKitchenChecklist] = useState([])
+  const [hkChecklist, setHkChecklist]           = useState([])
   const [checkedItems, setCheckedItems]         = useState({})
   const [customItems, setCustomItems]           = useState([])
   const [loadingChecklist, setLoadingChecklist] = useState(true)
+  const [purposeNotice, setPurposeNotice]       = useState(false)
   const [saving, setSaving]                     = useState(false)
   const [cancelling, setCancelling]             = useState(false)
   const [errors, setErrors]                     = useState({})
 
+  const isFirstPurposeRender = useRef(true)
+
+  // Fetch BOTH checklists on mount so switching purpose is instant
   useEffect(() => {
-    supabase
-      .from('checklist_items')
-      .select('id, item_name')
-      .eq('is_active', true)
-      .order('item_name')
-      .then(({ data }) => {
-        setChecklistItems(data ?? [])
-        setLoadingChecklist(false)
-      })
+    Promise.all([
+      supabase.from('checklist_items').select('id, item_name').eq('is_active', true).order('item_name'),
+      supabase.from('housekeeping_checklist_items').select('id, item_name').eq('is_active', true).order('item_name'),
+    ]).then(([{ data: kitchen }, { data: hk }]) => {
+      setKitchenChecklist(kitchen ?? [])
+      setHkChecklist(hk ?? [])
+      setLoadingChecklist(false)
+    })
   }, [])
 
   useEffect(() => {
@@ -102,6 +107,19 @@ export default function NewRequestForm() {
     setCheckedItems(checked)
     setCustomItems(custom)
   }, [editingRequest])
+
+  // Clear selections and show a brief notice whenever the purpose changes
+  useEffect(() => {
+    if (isFirstPurposeRender.current) { isFirstPurposeRender.current = false; return }
+    setCheckedItems({})
+    setCustomItems([])
+    if (!purpose) return
+    setPurposeNotice(true)
+    const t = setTimeout(() => setPurposeNotice(false), 2000)
+    return () => clearTimeout(t)
+  }, [purpose])
+
+  const checklistItems = purpose === 'kitchen' ? kitchenChecklist : hkChecklist
 
   const toggleItem = (name) =>
     setCheckedItems(prev => {
@@ -123,7 +141,7 @@ export default function NewRequestForm() {
 
   const validate = () => {
     const errs = {}
-    if (!mealPurpose) errs.mealPurpose = 'Please choose a meal.'
+    if (!purpose) errs.purpose = 'Please choose a purpose.'
     if (!Object.keys(checkedItems).length && !customItems.length)
       errs.items = 'Add at least one ingredient.'
     Object.entries(checkedItems).forEach(([name, { quantity }]) => {
@@ -149,9 +167,11 @@ export default function NewRequestForm() {
 
     try {
       let requestId = editingRequest?.id
+      const department = departmentForPurpose(purpose)
 
       const payload = {
-        meal_purpose: mealPurpose,
+        meal_purpose: purpose,
+        department,
         notes:        notes.trim() || null,
         status,
         submitted_at: status === 'submitted' ? new Date().toISOString() : null,
@@ -220,7 +240,7 @@ export default function NewRequestForm() {
       } else {
         const { data: req, error } = await supabase
           .from('requests')
-          .insert({ chef_id: profile.id, department: 'kitchen', ...payload })
+          .insert({ chef_id: profile.id, ...payload })
           .select('id')
           .single()
         if (error) throw error
@@ -244,7 +264,7 @@ export default function NewRequestForm() {
       if (status === 'submitted') {
         await processCustomItemsPipeline(
           requestId, profile.id,
-          'checklist_items', 'pending_checklist_items'
+          checklistTableFor(purpose), pendingTableFor(purpose)
         )
       }
 
@@ -297,25 +317,30 @@ export default function NewRequestForm() {
 
         <div className="space-y-5">
 
-          {/* Meal */}
+          {/* Purpose */}
           <div className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
             <label className="block text-base font-medium text-gray-700 mb-2">
-              Meal <span className="text-red-500">*</span>
+              Purpose <span className="text-red-500">*</span>
             </label>
             <select
-              value={mealPurpose}
-              onChange={e => setMealPurpose(e.target.value)}
+              value={purpose}
+              onChange={e => setPurpose(e.target.value)}
               className={`w-full border rounded-lg px-3 py-3 text-base text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[48px] ${
-                errors.mealPurpose ? 'border-red-400' : 'border-gray-300'
+                errors.purpose ? 'border-red-400' : 'border-gray-300'
               }`}
             >
-              <option value="">Choose meal…</option>
-              {MEAL_PURPOSES.map(mp => (
-                <option key={mp.value} value={mp.value}>{mp.label}</option>
+              <option value="">Choose purpose…</option>
+              {PURPOSE_OPTIONS.map(p => (
+                <option key={p.value} value={p.value}>{p.label}</option>
               ))}
             </select>
-            {errors.mealPurpose && (
-              <p className="text-base text-red-600 mt-1">{errors.mealPurpose}</p>
+            {errors.purpose && (
+              <p className="text-base text-red-600 mt-1">{errors.purpose}</p>
+            )}
+            {purposeNotice && (
+              <p className="text-sm text-blue-600 mt-1">
+                Checklist updated for {PURPOSE_LABELS[purpose]}
+              </p>
             )}
           </div>
 
@@ -329,6 +354,10 @@ export default function NewRequestForm() {
               <div className="flex justify-center py-10">
                 <div className="w-5 h-5 border-2 border-blue-600 border-t-transparent rounded-full animate-spin" />
               </div>
+            ) : !purpose ? (
+              <p className="text-sm text-gray-400 text-center py-6">
+                Choose a purpose above to see its checklist.
+              </p>
             ) : (
               <>
                 {Object.keys(grouped).length === 0 && (
@@ -469,7 +498,8 @@ export default function NewRequestForm() {
           <button
             type="button"
             onClick={addCustom}
-            className="w-full border-2 border-dashed border-gray-300 rounded-xl py-4 text-base text-gray-500 hover:border-blue-400 hover:text-blue-600 transition-colors min-h-[56px]"
+            disabled={!purpose}
+            className="w-full border-2 border-dashed border-gray-300 rounded-xl py-4 text-base text-gray-500 hover:border-blue-400 hover:text-blue-600 transition-colors min-h-[56px] disabled:opacity-50 disabled:hover:border-gray-300 disabled:hover:text-gray-500"
           >
             + Add Custom Item
           </button>
@@ -503,7 +533,7 @@ export default function NewRequestForm() {
                 onClick={() => save('draft')}
                 className="flex-1 bg-gray-200 hover:bg-gray-300 text-gray-800 font-semibold text-base py-3.5 rounded-xl disabled:opacity-50 transition-colors min-h-[52px]"
               >
-                {saving ? 'Saving…' : 'Save as Draft'}
+                {saving ? 'Saving…' : 'Save Draft'}
               </button>
               <button
                 type="button"
@@ -511,7 +541,7 @@ export default function NewRequestForm() {
                 onClick={() => save('submitted')}
                 className="flex-1 bg-blue-600 hover:bg-blue-700 disabled:bg-blue-400 text-white font-semibold text-base py-3.5 rounded-xl transition-colors min-h-[52px]"
               >
-                {saving ? 'Sending…' : 'Send Request'}
+                {saving ? 'Sending…' : 'Submit Request'}
               </button>
             </div>
 
