@@ -67,7 +67,7 @@ export default function Login() {
                 autoFocus
                 value={username}
                 onChange={e => setUsername(e.target.value)}
-                placeholder="e.g. devnath"
+                placeholder="e.g. Taran"
                 className="w-full border border-gray-300 rounded-lg px-3 py-3 text-base text-gray-900 placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-transparent transition"
                 required
               />
