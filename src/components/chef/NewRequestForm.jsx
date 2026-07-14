@@ -7,6 +7,56 @@ import { PURPOSE_OPTIONS, PURPOSE_LABELS, departmentForPurpose } from '../../lib
 
 const UNITS = ['kg', 'g', 'litre', 'ml', 'pieces', 'packets', 'dozens', 'other']
 
+function ChecklistItemRow({ item, checked, onToggle, onUpdate, error }) {
+  return (
+    <div className="px-3 py-3">
+      <div className="flex items-center gap-3 flex-wrap">
+        <input
+          type="checkbox"
+          id={`ci-${item.id}`}
+          checked={!!checked}
+          onChange={onToggle}
+          className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 flex-shrink-0 cursor-pointer"
+        />
+        <label
+          htmlFor={`ci-${item.id}`}
+          className="flex-1 text-base text-gray-800 cursor-pointer"
+        >
+          {item.item_name}
+        </label>
+
+        {checked && (
+          <div className="flex items-center gap-2 ml-auto">
+            <input
+              type="number"
+              min="0.5"
+              step="0.5"
+              onWheel={e => e.target.blur()}
+              value={checked.quantity}
+              onChange={e => onUpdate('quantity', e.target.value)}
+              placeholder="Qty"
+              className={`w-20 rounded-lg border px-2 py-2 text-base text-center focus:outline-none focus:ring-1 focus:ring-blue-500 min-h-[44px] ${
+                error ? 'border-red-400' : 'border-gray-300'
+              }`}
+            />
+            <select
+              value={checked.unit}
+              onChange={e => onUpdate('unit', e.target.value)}
+              className="rounded-lg border border-gray-300 px-2 py-2 text-base focus:outline-none focus:ring-1 focus:ring-blue-500 min-h-[44px]"
+            >
+              {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+            </select>
+          </div>
+        )}
+      </div>
+
+      {error && (
+        <p className="text-sm text-red-600 mt-1 ml-8">{error}</p>
+      )}
+    </div>
+  )
+}
+
 function checklistTableFor(purpose) {
   return purpose === 'kitchen' ? 'checklist_items' : 'housekeeping_checklist_items'
 }
@@ -75,6 +125,7 @@ export default function NewRequestForm() {
   const [customItems, setCustomItems]           = useState([])
   const [loadingChecklist, setLoadingChecklist] = useState(true)
   const [purposeNotice, setPurposeNotice]       = useState(false)
+  const [searchQuery, setSearchQuery]           = useState('')
   const [saving, setSaving]                     = useState(false)
   const [cancelling, setCancelling]             = useState(false)
   const [errors, setErrors]                     = useState({})
@@ -296,6 +347,12 @@ export default function NewRequestForm() {
     return acc
   }, {})
 
+  const filteredItems = searchQuery
+    ? checklistItems.filter(item =>
+        item.item_name.toLowerCase().includes(searchQuery.toLowerCase().trim())
+      )
+    : []
+
   return (
     <div className="min-h-screen bg-gray-50">
       <Navbar profile={profile} onSignOut={signOut} />
@@ -360,72 +417,80 @@ export default function NewRequestForm() {
               </p>
             ) : (
               <>
-                {Object.keys(grouped).length === 0 && (
-                  <p className="text-sm text-gray-400 text-center py-6">
-                    No checklist items available. Use "Add Custom Item" below.
-                  </p>
-                )}
-                {Object.keys(grouped).length > 0 && (
-                  <div className="overflow-y-auto max-h-64 sm:max-h-80 rounded-lg border border-gray-100 divide-y divide-gray-100">
-                    {Object.entries(grouped)
-                      .sort(([a], [b]) => a.localeCompare(b))
-                      .map(([letter, items]) => (
-                        <div key={letter}>
-                          <div className="sticky top-0 bg-gray-50 px-3 py-1.5 text-xs font-bold text-gray-400 uppercase tracking-wider">
-                            {letter}
-                          </div>
-                          {items.map(item => (
-                            <div key={item.id} className="px-3 py-3">
-                              <div className="flex items-center gap-3 flex-wrap">
-                                <input
-                                  type="checkbox"
-                                  id={`ci-${item.id}`}
-                                  checked={!!checkedItems[item.item_name]}
-                                  onChange={() => toggleItem(item.item_name)}
-                                  className="w-5 h-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 flex-shrink-0 cursor-pointer"
-                                />
-                                <label
-                                  htmlFor={`ci-${item.id}`}
-                                  className="flex-1 text-base text-gray-800 cursor-pointer"
-                                >
-                                  {item.item_name}
-                                </label>
+                <div className="relative mb-3">
+                  <input
+                    type="text"
+                    placeholder="Search items..."
+                    value={searchQuery}
+                    onChange={(e) => setSearchQuery(e.target.value)}
+                    className="w-full border border-gray-300 rounded-lg
+                      px-3 py-2 text-base focus:outline-none
+                      focus:ring-2 focus:ring-blue-500 pl-9"
+                  />
+                  <span className="absolute left-3 top-2.5 text-gray-400
+                    text-sm">🔍</span>
+                  {searchQuery && (
+                    <button
+                      onClick={() => setSearchQuery('')}
+                      className="absolute right-3 top-2.5 text-gray-400
+                        hover:text-gray-600 text-sm"
+                    >
+                      ✕
+                    </button>
+                  )}
+                </div>
 
-                                {checkedItems[item.item_name] && (
-                                  <div className="flex items-center gap-2 ml-auto">
-                                    <input
-                                      type="number"
-                                      min="0.5"
-                                      step="0.5"
-                                      onWheel={e => e.target.blur()}
-                                      value={checkedItems[item.item_name].quantity}
-                                      onChange={e => updateChecked(item.item_name, 'quantity', e.target.value)}
-                                      placeholder="Qty"
-                                      className={`w-20 rounded-lg border px-2 py-2 text-base text-center focus:outline-none focus:ring-1 focus:ring-blue-500 min-h-[44px] ${
-                                        errors[`qty_${item.item_name}`] ? 'border-red-400' : 'border-gray-300'
-                                      }`}
-                                    />
-                                    <select
-                                      value={checkedItems[item.item_name].unit}
-                                      onChange={e => updateChecked(item.item_name, 'unit', e.target.value)}
-                                      className="rounded-lg border border-gray-300 px-2 py-2 text-base focus:outline-none focus:ring-1 focus:ring-blue-500 min-h-[44px]"
-                                    >
-                                      {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
-                                    </select>
-                                  </div>
-                                )}
+                {searchQuery ? (
+                  filteredItems.length === 0 ? (
+                    <p className="text-sm text-gray-400 text-center py-4">
+                      No items found for "{searchQuery}".
+                      Use "Add Custom Item" below to add it.
+                    </p>
+                  ) : (
+                    <div className="overflow-y-auto max-h-64 sm:max-h-80 rounded-lg border border-gray-100 divide-y divide-gray-100">
+                      {filteredItems.map(item => (
+                        <ChecklistItemRow
+                          key={item.id}
+                          item={item}
+                          checked={checkedItems[item.item_name]}
+                          onToggle={() => toggleItem(item.item_name)}
+                          onUpdate={(field, value) => updateChecked(item.item_name, field, value)}
+                          error={errors[`qty_${item.item_name}`]}
+                        />
+                      ))}
+                    </div>
+                  )
+                ) : (
+                  <>
+                    {Object.keys(grouped).length === 0 && (
+                      <p className="text-sm text-gray-400 text-center py-6">
+                        No checklist items available. Use "Add Custom Item" below.
+                      </p>
+                    )}
+                    {Object.keys(grouped).length > 0 && (
+                      <div className="overflow-y-auto max-h-64 sm:max-h-80 rounded-lg border border-gray-100 divide-y divide-gray-100">
+                        {Object.entries(grouped)
+                          .sort(([a], [b]) => a.localeCompare(b))
+                          .map(([letter, items]) => (
+                            <div key={letter}>
+                              <div className="sticky top-0 bg-gray-50 px-3 py-1.5 text-xs font-bold text-gray-400 uppercase tracking-wider">
+                                {letter}
                               </div>
-
-                              {errors[`qty_${item.item_name}`] && (
-                                <p className="text-sm text-red-600 mt-1 ml-8">
-                                  {errors[`qty_${item.item_name}`]}
-                                </p>
-                              )}
+                              {items.map(item => (
+                                <ChecklistItemRow
+                                  key={item.id}
+                                  item={item}
+                                  checked={checkedItems[item.item_name]}
+                                  onToggle={() => toggleItem(item.item_name)}
+                                  onUpdate={(field, value) => updateChecked(item.item_name, field, value)}
+                                  error={errors[`qty_${item.item_name}`]}
+                                />
+                              ))}
                             </div>
                           ))}
-                        </div>
-                      ))}
-                  </div>
+                      </div>
+                    )}
+                  </>
                 )}
               </>
             )}
