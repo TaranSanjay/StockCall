@@ -28,7 +28,7 @@ function fmt(dateStr) {
   return `${dd}/${mm}/${yy}, ${hh}:${min}`
 }
 
-const PAYMENT_LABELS = { cash: 'Cash', upi: 'UPI', card: 'Credit Card' }
+const PAYMENT_LABELS = { cash: 'Cash', upi: 'UPI', card: 'Credit Card', netbanking: 'Net Banking' }
 
 // amountPaid is the inclusive (after-GST) amount the user entered
 function calcItem(amountPaid, gstPercent) {
@@ -148,7 +148,9 @@ function ExistingOrderView({ order, requestId, navigate, profile, signOut, allSu
         {paymentLabel && (
           <div className="mb-5">
             <span className="text-sm text-gray-500">Paid via: </span>
-            <span className="bg-gray-100 text-gray-900 text-sm font-semibold px-3 py-1 rounded-full">{paymentLabel}</span>
+            <span className={`text-sm font-semibold px-3 py-1 rounded-full ${
+              order.payment_method === 'netbanking' ? 'bg-indigo-100 text-indigo-700' : 'bg-gray-100 text-gray-900'
+            }`}>{paymentLabel}</span>
           </div>
         )}
 
@@ -666,7 +668,7 @@ export default function PlaceOrder() {
             Payment Method <span className="text-red-500">*</span>
           </label>
           <div className="flex gap-3">
-            {[['cash', 'Cash'], ['upi', 'UPI'], ['card', 'Credit Card']].map(([val, label]) => (
+            {[['cash', 'Cash'], ['upi', 'UPI'], ['card', 'Credit Card'], ['netbanking', 'Net Banking']].map(([val, label]) => (
               <button
                 key={val}
                 type="button"

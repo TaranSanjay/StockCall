@@ -124,6 +124,7 @@ function PaymentPill({ method }) {
   if (m === 'cash')                         { cls = 'bg-green-100 text-green-700';   label = 'Cash' }
   else if (m === 'upi')                     { cls = 'bg-blue-100 text-blue-700';     label = 'UPI'  }
   else if (m === 'card' || m === 'credit card') { cls = 'bg-purple-100 text-purple-700'; label = 'Card' }
+  else if (m === 'netbanking')               { cls = 'bg-pink-100 text-pink-700';     label = 'Net Banking' }
   else                                      { cls = 'bg-gray-100 text-gray-600';     label = method }
   return <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${cls}`}>{label}</span>
 }
@@ -529,7 +530,7 @@ function OrdersTab() {
           </div>
 
           {/* Desktop table */}
-          <div className="hidden md:block bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
+          <div className="hidden md:block bg-white rounded-xl border border-gray-200 shadow-sm overflow-x-auto">
             <table className="w-full text-sm">
               <THead cols={['Date & Time', 'Placed By', 'Requested By', 'Vendor', 'Items', 'Grand Total', '']} />
               <tbody className="divide-y divide-gray-100">
@@ -537,21 +538,21 @@ function OrdersTab() {
                   return (
                     <tr key={order.id} className="hover:bg-gray-50">
                       <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{fmt(order.placed_at)}</td>
-                      <td className="px-4 py-3 font-medium text-gray-900">{order.placed_by_profile?.full_name ?? '—'}</td>
-                      <td className="px-4 py-3 text-gray-700">
+                      <td className="px-4 py-3 font-medium text-gray-900 whitespace-nowrap">{order.placed_by_profile?.full_name ?? '—'}</td>
+                      <td className="px-4 py-3 text-gray-700 whitespace-nowrap">
                         {order.request?.chef?.full_name ?? '—'}
                         {order.request?.department === 'housekeeping' && (
                           <span className="bg-teal-100 text-teal-700 text-xs rounded-full px-1.5 py-0.5 ml-1">🧹</span>
                         )}
                       </td>
                       <td className="px-4 py-3 text-gray-700">
-                        <div className="flex items-center gap-2 flex-wrap">
+                        <div className="flex items-center gap-2 flex-nowrap whitespace-nowrap">
                           {order.vendor_name}
                           <PaymentPill method={order.payment_method} />
                         </div>
                       </td>
-                      <td className="px-4 py-3 text-gray-600">{order.order_items?.length ?? 0}</td>
-                      <td className="px-4 py-3 font-semibold text-gray-900">₹{grandTotal(order).toFixed(2)}</td>
+                      <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{order.order_items?.length ?? 0}</td>
+                      <td className="px-4 py-3 font-semibold text-gray-900 whitespace-nowrap">₹{grandTotal(order).toFixed(2)}</td>
                       <td className="px-4 py-3">
                         <button onClick={() => setModal(order)} className="text-sm text-blue-600 hover:text-blue-800 font-medium whitespace-nowrap">
                           View Details
