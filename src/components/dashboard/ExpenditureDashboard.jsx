@@ -48,7 +48,7 @@ function getBucketKey(dateStr, granularity) {
 
 function formatBucketLabel(key, granularity) {
   if (granularity === 'daily') {
-    const [y, m, day] = key.split('-')
+    const [, m, day] = key.split('-')
     return `${parseInt(day)} ${MONTH_NAMES[parseInt(m) - 1]}`
   } else if (granularity === 'weekly') {
     const parts = key.split('-')
@@ -117,10 +117,7 @@ export default function ExpenditureDashboard() {
   const [fetching, setFetching]         = useState(true)
   const [fetchError, setFetchError]     = useState(null)
 
-  const [chartData, setChartData]       = useState([])
-  const [summary, setSummary]           = useState({ preTax: 0, tax: 0, grand: 0 })
   const [mapperOpen, setMapperOpen]     = useState(false)
-
   // Item Details table — filters, sort, pagination
   const [itemCatFilter, setItemCatFilter] = useState('')
   const [itemSearch, setItemSearch]       = useState('')
@@ -272,8 +269,7 @@ export default function ExpenditureDashboard() {
     return () => { cancelled = true }
   }, [dateFrom, dateTo, scope, purpose])
 
-  // Process chart data whenever raw items, granularity, selection, or scope change
-  useEffect(() => {
+  const { chartData, summary } = useMemo(() => {
     const buckets = {}
     let preTax = 0, tax = 0
 
@@ -299,12 +295,14 @@ export default function ExpenditureDashboard() {
     }
 
     const sortedKeys = Object.keys(buckets).sort()
-    setChartData(sortedKeys.map(key => ({
-      period: formatBucketLabel(key, granularity),
-      ...buckets[key],
-    })))
-    setSummary({ preTax, tax, grand: preTax + tax })
-  }, [rawItems, orderDateMap, granularity, selectedCats, scope])
+    return {
+      chartData: sortedKeys.map(key => ({
+        period: formatBucketLabel(key, granularity),
+        ...buckets[key],
+      })),
+      summary: { preTax, tax, grand: preTax + tax },
+    }
+  }, [rawItems, orderDateMap, granularity, selectedCats])
 
   const allCats = catNamesForScope(scope, categories, hkCategories)
   const isAllSelected = allCats.length > 0 && allCats.every(c => selectedCats.has(c))
@@ -361,7 +359,7 @@ export default function ExpenditureDashboard() {
 
   // ── Section 4: Payment method split (full period, not category-filtered) ──
   const paymentTotals = useMemo(() => {
-    const totals = { cash: 0, upi: 0, card: 0 }
+    const totals = { cash: 0, upi: 0, card: 0, netbanking: 0 }
     const orderMethod = {}
     for (const item of rawItems) {
       const { paid } = itemAmounts(item)
@@ -369,7 +367,7 @@ export default function ExpenditureDashboard() {
       if (method && method in totals) totals[method] += paid
       if (method && item.order_id != null) orderMethod[item.order_id] = method
     }
-    const counts = { cash: 0, upi: 0, card: 0 }
+    const counts = { cash: 0, upi: 0, card: 0, netbanking: 0 }
     for (const method of Object.values(orderMethod)) {
       if (method in counts) counts[method] += 1
     }
@@ -417,9 +415,10 @@ export default function ExpenditureDashboard() {
   }
 
   const PAYMENT_CARD_STYLES = {
-    cash: { label: 'Cash',          cls: 'bg-green-50 border-green-200 text-green-700' },
-    upi:  { label: 'UPI',           cls: 'bg-blue-50 border-blue-200 text-blue-700' },
-    card: { label: 'Credit Card',   cls: 'bg-purple-50 border-purple-200 text-purple-700' },
+    cash:       { label: 'Cash',          cls: 'bg-green-50 border-green-200 text-green-700' },
+    upi:        { label: 'UPI',           cls: 'bg-blue-50 border-blue-200 text-blue-700' },
+    card:       { label: 'Credit Card',   cls: 'bg-purple-50 border-purple-200 text-purple-700' },
+    netbanking: { label: 'Net Banking',   cls: 'bg-indigo-50 border-indigo-200 text-indigo-700' },
   }
 
   return (
@@ -729,8 +728,8 @@ export default function ExpenditureDashboard() {
               {/* Section 4 — Payment Methods */}
               <div className="bg-white rounded-xl border border-gray-200 p-4">
                 <h2 className="text-base font-semibold text-gray-900 mb-3">Payment Methods</h2>
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                  {['cash', 'upi', 'card'].map(method => {
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {['cash', 'upi', 'card', 'netbanking'].map(method => {
                     const style = PAYMENT_CARD_STYLES[method]
                     return (
                       <div key={method} className={`rounded-xl border p-4 text-center ${style.cls}`}>

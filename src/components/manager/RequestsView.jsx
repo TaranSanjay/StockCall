@@ -135,34 +135,50 @@ export default function RequestsView() {
     if (location.state?.toast) window.history.replaceState({}, '')
   }, [location.state?.toast])
 
-  const fetchRequests = useCallback(async () => {
+  const fetchData = useCallback(async () => {
+    const { data: reqs, error: reqErr } = await supabase
+      .from('requests')
+      .select('*, request_items(*)')
+      .order('created_at', { ascending: false })
+    if (reqErr) throw reqErr
+
+    if (!reqs?.length) return []
+
+    const chefIds = [...new Set(reqs.map(r => r.chef_id))]
+    const { data: chefProfiles, error: profErr } = await supabase
+      .from('profiles').select('id, full_name').in('id', chefIds)
+    if (profErr) throw profErr
+
+    const pMap = Object.fromEntries((chefProfiles ?? []).map(p => [p.id, p]))
+    return reqs.map(r => ({ ...r, chef: pMap[r.chef_id] ?? null }))
+  }, [])
+
+  const load = useCallback(async () => {
     setLoading(true)
     setLoadError(null)
     try {
-      const { data: reqs, error: reqErr } = await supabase
-        .from('requests')
-        .select('*, request_items(*)')
-        .order('created_at', { ascending: false })
-        .limit(100)
-      if (reqErr) throw reqErr
-
-      if (!reqs?.length) { setRequests([]); setLoading(false); return }
-
-      const chefIds = [...new Set(reqs.map(r => r.chef_id))]
-      const { data: chefProfiles, error: profErr } = await supabase
-        .from('profiles').select('id, full_name').in('id', chefIds)
-      if (profErr) throw profErr
-
-      const pMap = Object.fromEntries((chefProfiles ?? []).map(p => [p.id, p]))
-      setRequests(reqs.map(r => ({ ...r, chef: pMap[r.chef_id] ?? null })))
-      setLoading(false)
+      setRequests(await fetchData())
     } catch {
       setLoadError('Something went wrong. Please refresh and try again.')
+    } finally {
       setLoading(false)
     }
-  }, [])
+  }, [fetchData])
 
-  useEffect(() => { fetchRequests() }, [fetchRequests])
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const reqs = await fetchData()
+        if (!cancelled) setRequests(reqs)
+      } catch {
+        if (!cancelled) setLoadError('Something went wrong. Please refresh and try again.')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [fetchData])
 
   const openRequest = (req) => setSelected(req)
   const closePanel  = () => setSelected(null)
@@ -177,7 +193,7 @@ export default function RequestsView() {
     }
     closePanel()
     setToast({ message: 'Request cancelled.', type: 'success' })
-    fetchRequests()
+    load()
   }
 
   const canCreate = ['manager', 'supermanager', 'admin'].includes(profile?.role)
@@ -215,7 +231,7 @@ export default function RequestsView() {
       <div className="flex items-center justify-between mb-5">
         <h1 className="text-xl font-bold text-gray-900">Requests</h1>
         <div className="flex items-center gap-3">
-          <button onClick={fetchRequests} className="text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1 cursor-pointer">
+          <button onClick={load} className="text-sm text-gray-500 hover:text-gray-700 flex items-center gap-1 cursor-pointer">
             ↻ Refresh
           </button>
           {canCreate && (
@@ -315,12 +331,6 @@ export default function RequestsView() {
             )
           })}
         </div>
-      )}
-
-      {requests.length === 100 && (
-        <p className="text-xs text-gray-400 text-center py-3">
-          Showing most recent 100 results. Use filters to narrow down.
-        </p>
       )}
 
       {/* FAB — mobile only */}

@@ -9,7 +9,7 @@ export async function logError(component, message, context = {}) {
       message:   String(message),
       context,
     })
-  } catch (_) {
+  } catch {
     // never throw from error logger
   }
 }

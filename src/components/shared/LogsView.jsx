@@ -129,6 +129,135 @@ function PaymentPill({ method }) {
   return <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${cls}`}>{label}</span>
 }
 
+// ── Shared detail renderers (module scope so they don't reset on every render) ──
+
+function ItemList({ req }) {
+  const items = req.request_items ?? []
+  if (!items.length) return <p className="text-sm text-gray-400">No items.</p>
+  return (
+    <div className="divide-y divide-gray-100">
+      {items.map(i => (
+        <div key={i.id} className="flex items-start justify-between gap-3 py-2.5">
+          <div className="min-w-0">
+            <p className="text-sm font-medium text-gray-900">
+              {i.item_name}
+              {i.is_custom && <span className="ml-1.5 text-xs text-blue-500">custom</span>}
+            </p>
+            <p className="text-xs text-gray-500">{i.quantity} {i.unit}</p>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function calcOI(oi) {
+  const base       = (Number(oi.price_per_unit) || 0) * (Number(oi.quantity_ordered) || 0)
+  const rate       = (Number(oi.gst_percent) || 0) / 100
+  const amountPaid = base * (1 + rate)
+  return { base, amountPaid }
+}
+
+function grandTotal(order) {
+  return (order.order_items ?? []).reduce((s, oi) => s + calcOI(oi).amountPaid, 0)
+}
+
+function OrderItems({ order }) {
+  const rows     = (order.order_items ?? []).map(oi => ({ ...oi, ...calcOI(oi) }))
+  const preTotal = rows.reduce((s, r) => s + r.base, 0)
+  const taxable  = rows.filter(r => (Number(r.gst_percent) || 0) > 0).reduce((s, r) => s + r.base, 0)
+  const nonTax   = rows.filter(r => (Number(r.gst_percent) || 0) === 0).reduce((s, r) => s + r.base, 0)
+  const taxAmt   = rows.reduce((s, r) => s + (r.amountPaid - r.base), 0)
+  const grand    = rows.reduce((s, r) => s + r.amountPaid, 0)
+  return (
+    <div>
+      {order.payment_method && (
+        <p className="text-sm text-gray-500 mb-3">
+          Paid via: <PaymentPill method={order.payment_method} />
+        </p>
+      )}
+
+      {/* Desktop item table */}
+      <div className="hidden md:block overflow-x-auto mb-4">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="bg-gray-50 border-b border-gray-200">
+              {['Item Name', 'Qty', 'Unit', 'GST%', 'Amount Paid (₹)', 'Base (₹)'].map(h => (
+                <th key={h} className="text-left px-3 py-2 text-xs font-semibold text-gray-500 whitespace-nowrap">{h}</th>
+              ))}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-gray-100">
+            {rows.map(oi => {
+              const gst = Number(oi.gst_percent) || 0
+              return (
+                <tr key={oi.id}>
+                  <td className="px-3 py-2.5 font-medium text-gray-900">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {oi.item_name}
+                      {gst > 0
+                        ? <span className="bg-gray-100 text-gray-600 text-xs rounded-full px-2 py-0.5">{gst}% GST</span>
+                        : <span className="bg-orange-100 text-orange-600 text-xs rounded-full px-2 py-0.5">No Tax</span>
+                      }
+                    </div>
+                  </td>
+                  <td className="px-3 py-2.5 text-gray-600">{oi.quantity_ordered}</td>
+                  <td className="px-3 py-2.5 text-gray-600">{oi.unit}</td>
+                  <td className="px-3 py-2.5 text-gray-600">{gst}%</td>
+                  <td className="px-3 py-2.5 text-gray-900 whitespace-nowrap">₹{oi.amountPaid.toFixed(2)}</td>
+                  <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">₹{oi.base.toFixed(2)}</td>
+                </tr>
+              )
+            })}
+          </tbody>
+        </table>
+      </div>
+
+      {/* Mobile item list */}
+      <div className="md:hidden divide-y divide-gray-100 mb-4">
+        {rows.map(oi => {
+          const gst = Number(oi.gst_percent) || 0
+          return (
+            <div key={oi.id} className="flex items-start justify-between gap-3 py-2.5">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <p className="text-sm font-medium text-gray-900">{oi.item_name}</p>
+                  {gst > 0
+                    ? <span className="bg-gray-100 text-gray-600 text-xs rounded-full px-2 py-0.5">{gst}% GST</span>
+                    : <span className="bg-orange-100 text-orange-600 text-xs rounded-full px-2 py-0.5">No Tax</span>
+                  }
+                </div>
+                <p className="text-xs text-gray-500 mt-0.5">{oi.quantity_ordered} {oi.unit} · Base ₹{oi.base.toFixed(2)}</p>
+              </div>
+              <p className="text-sm font-semibold text-gray-900 whitespace-nowrap">₹{oi.amountPaid.toFixed(2)}</p>
+            </div>
+          )
+        })}
+      </div>
+
+      <div className="bg-gray-50 rounded-xl p-3 space-y-1.5 text-sm">
+        <div className="flex justify-between text-gray-600">
+          <span>Total Cart Value (Pre-Tax)</span><span>₹{preTotal.toFixed(2)}</span>
+        </div>
+        <div className="flex justify-between text-gray-600">
+          <span>Taxable Amount</span><span>₹{taxable.toFixed(2)}</span>
+        </div>
+        {nonTax > 0 && (
+          <div className="flex justify-between text-gray-600">
+            <span>Non-Taxable Amount</span><span>₹{nonTax.toFixed(2)}</span>
+          </div>
+        )}
+        <div className="flex justify-between text-gray-600">
+          <span>Tax Amount</span><span>₹{taxAmt.toFixed(2)}</span>
+        </div>
+        <div className="flex justify-between font-bold text-gray-900 pt-1 border-t border-gray-200">
+          <span>Grand Total</span><span>₹{grand.toFixed(2)}</span>
+        </div>
+      </div>
+    </div>
+  )
+}
+
 // ── Tab 1 — Requests ──────────────────────────────────────────────────────────
 
 function RequestsTab() {
@@ -145,9 +274,8 @@ function RequestsTab() {
   useEffect(() => {
     supabase
       .from('requests')
-      .select('*, request_items(*, reviewer:profiles!acted_by(full_name)), chef:profiles!chef_id(full_name)')
+      .select('*, request_items(*), chef:profiles!chef_id(full_name)')
       .order('created_at', { ascending: false })
-      .limit(100)
       .then(({ data: rows }) => { setData(rows ?? []); setLoading(false) })
   }, [])
 
@@ -159,28 +287,6 @@ function RequestsTab() {
     (!mealF   || r.meal_purpose === mealF) &&
     (!statusF || r.status === statusF)
   )
-
-  function ItemList({ req }) {
-    const items = req.request_items ?? []
-    if (!items.length) return <p className="text-sm text-gray-400">No items.</p>
-    return (
-      <div className="divide-y divide-gray-100">
-        {items.map(i => (
-          <div key={i.id} className="flex items-start justify-between gap-3 py-2.5">
-            <div className="min-w-0">
-              <p className="text-sm font-medium text-gray-900">
-                {i.item_name}
-                {i.is_custom && <span className="ml-1.5 text-xs text-blue-500">custom</span>}
-              </p>
-              <p className="text-xs text-gray-500">{i.quantity} {i.unit}</p>
-              {i.rejection_note && <p className="text-xs text-red-600 italic mt-0.5">"{i.rejection_note}"</p>}
-            </div>
-            <StatusBadge status={i.item_status} />
-          </div>
-        ))}
-      </div>
-    )
-  }
 
   if (loading) return <Spinner />
 
@@ -225,11 +331,6 @@ function RequestsTab() {
         </FRow>
       </FiltersPanel>
 
-      {data.length === 100 && (
-        <p className="text-xs text-gray-400 text-center py-3 mb-2">
-          Showing most recent 100 results. Use filters to narrow down.
-        </p>
-      )}
       {displayed.length === 0 ? (
         <EmptyState emoji="📋" message="No requests found." />
       ) : (
@@ -238,9 +339,6 @@ function RequestsTab() {
           <div className="md:hidden space-y-3">
             {displayed.map(req => {
               const items    = req.request_items ?? []
-              const approved = items.filter(i => i.item_status === 'approved').length
-              const rejected = items.filter(i => i.item_status === 'rejected').length
-              const reviewer = items.find(i => i.reviewer?.full_name)?.reviewer?.full_name ?? '—'
               const open     = expandedId === req.id
               return (
                 <div key={req.id} className="bg-white rounded-xl border border-gray-200 shadow-sm p-4">
@@ -254,12 +352,9 @@ function RequestsTab() {
                     </div>
                     <StatusBadge status={req.status} />
                   </div>
-                  <p className="text-xs text-gray-500 mb-1">
-                    {items.length} items ·{' '}
-                    <span className="text-green-600">{approved} approved</span> ·{' '}
-                    <span className="text-red-600">{rejected} rejected</span>
+                  <p className="text-xs text-gray-500 mb-2">
+                    {items.length} item{items.length !== 1 ? 's' : ''}
                   </p>
-                  <p className="text-xs text-gray-500 mb-2">Reviewed by: <span className="font-medium text-gray-700">{reviewer}</span></p>
                   <button onClick={() => setExpanded(open ? null : req.id)} className="text-sm text-blue-600 font-medium">
                     {open ? 'Hide ▲' : 'View Details ▼'}
                   </button>
@@ -276,13 +371,10 @@ function RequestsTab() {
           {/* Desktop table */}
           <div className="hidden md:block bg-white rounded-xl border border-gray-200 shadow-sm overflow-hidden">
             <table className="w-full text-sm">
-              <THead cols={['Date & Time', 'Requested By', 'Purpose', 'Status', 'Reviewed By', 'Items', '']} />
+              <THead cols={['Date & Time', 'Requested By', 'Purpose', 'Status', 'Items', '']} />
               <tbody className="divide-y divide-gray-100">
                 {displayed.map(req => {
                   const items    = req.request_items ?? []
-                  const approved = items.filter(i => i.item_status === 'approved').length
-                  const rejected = items.filter(i => i.item_status === 'rejected').length
-                  const reviewer = items.find(i => i.reviewer?.full_name)?.reviewer?.full_name ?? '—'
                   return (
                     <tr key={req.id} className="hover:bg-gray-50">
                       <td className="px-4 py-3 text-gray-600 whitespace-nowrap">{fmt(req.created_at)}</td>
@@ -291,9 +383,8 @@ function RequestsTab() {
                         <PurposeBadge purpose={req.meal_purpose} />
                       </td>
                       <td className="px-4 py-3"><StatusBadge status={req.status} /></td>
-                      <td className="px-4 py-3 text-gray-700">{reviewer}</td>
                       <td className="px-4 py-3 text-gray-600">
-                        {items.length} · <span className="text-green-600">{approved}✓</span> · <span className="text-red-600">{rejected}✗</span>
+                        {items.length} item{items.length !== 1 ? 's' : ''}
                       </td>
                       <td className="px-4 py-3">
                         <button onClick={() => setModal(req)} className="text-sm text-blue-600 hover:text-blue-800 font-medium whitespace-nowrap">
@@ -337,21 +428,10 @@ function OrdersTab() {
         )
       `)
       .order('placed_at', { ascending: false })
-      .limit(100)
       .then(({ data: rows }) => { setData(rows ?? []); setLoading(false) })
   }, [])
 
   const placedByList = [...new Set(data.map(o => o.placed_by_profile?.full_name).filter(Boolean))].sort()
-
-  function calcOI(oi) {
-    const base       = (Number(oi.price_per_unit) || 0) * (Number(oi.quantity_ordered) || 0)
-    const rate       = (Number(oi.gst_percent) || 0) / 100
-    const amountPaid = base * (1 + rate)
-    return { base, amountPaid }
-  }
-  function grandTotal(order) {
-    return (order.order_items ?? []).reduce((s, oi) => s + calcOI(oi).amountPaid, 0)
-  }
 
   const displayed = data.filter(o =>
     (o.order_items?.length ?? 0) > 0 &&
@@ -359,102 +439,6 @@ function OrdersTab() {
     (!placedByF || o.placed_by_profile?.full_name === placedByF) &&
     (!vendorF   || (o.vendor_name ?? '').toLowerCase().includes(vendorF.toLowerCase()))
   )
-
-  function OrderItems({ order }) {
-    const rows     = (order.order_items ?? []).map(oi => ({ ...oi, ...calcOI(oi) }))
-    const preTotal = rows.reduce((s, r) => s + r.base, 0)
-    const taxable  = rows.filter(r => (Number(r.gst_percent) || 0) > 0).reduce((s, r) => s + r.base, 0)
-    const nonTax   = rows.filter(r => (Number(r.gst_percent) || 0) === 0).reduce((s, r) => s + r.base, 0)
-    const taxAmt   = rows.reduce((s, r) => s + (r.amountPaid - r.base), 0)
-    const grand    = rows.reduce((s, r) => s + r.amountPaid, 0)
-    return (
-      <div>
-        {order.payment_method && (
-          <p className="text-sm text-gray-500 mb-3">
-            Paid via: <PaymentPill method={order.payment_method} />
-          </p>
-        )}
-
-        {/* Desktop item table */}
-        <div className="hidden md:block overflow-x-auto mb-4">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="bg-gray-50 border-b border-gray-200">
-                {['Item Name', 'Qty', 'Unit', 'GST%', 'Amount Paid (₹)', 'Base (₹)'].map(h => (
-                  <th key={h} className="text-left px-3 py-2 text-xs font-semibold text-gray-500 whitespace-nowrap">{h}</th>
-                ))}
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-gray-100">
-              {rows.map(oi => {
-                const gst = Number(oi.gst_percent) || 0
-                return (
-                  <tr key={oi.id}>
-                    <td className="px-3 py-2.5 font-medium text-gray-900">
-                      <div className="flex items-center gap-2 flex-wrap">
-                        {oi.item_name}
-                        {gst > 0
-                          ? <span className="bg-gray-100 text-gray-600 text-xs rounded-full px-2 py-0.5">{gst}% GST</span>
-                          : <span className="bg-orange-100 text-orange-600 text-xs rounded-full px-2 py-0.5">No Tax</span>
-                        }
-                      </div>
-                    </td>
-                    <td className="px-3 py-2.5 text-gray-600">{oi.quantity_ordered}</td>
-                    <td className="px-3 py-2.5 text-gray-600">{oi.unit}</td>
-                    <td className="px-3 py-2.5 text-gray-600">{gst}%</td>
-                    <td className="px-3 py-2.5 text-gray-900 whitespace-nowrap">₹{oi.amountPaid.toFixed(2)}</td>
-                    <td className="px-3 py-2.5 text-gray-700 whitespace-nowrap">₹{oi.base.toFixed(2)}</td>
-                  </tr>
-                )
-              })}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Mobile item list */}
-        <div className="md:hidden divide-y divide-gray-100 mb-4">
-          {rows.map(oi => {
-            const gst = Number(oi.gst_percent) || 0
-            return (
-              <div key={oi.id} className="flex items-start justify-between gap-3 py-2.5">
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    <p className="text-sm font-medium text-gray-900">{oi.item_name}</p>
-                    {gst > 0
-                      ? <span className="bg-gray-100 text-gray-600 text-xs rounded-full px-2 py-0.5">{gst}% GST</span>
-                      : <span className="bg-orange-100 text-orange-600 text-xs rounded-full px-2 py-0.5">No Tax</span>
-                    }
-                  </div>
-                  <p className="text-xs text-gray-500 mt-0.5">{oi.quantity_ordered} {oi.unit} · Base ₹{oi.base.toFixed(2)}</p>
-                </div>
-                <p className="text-sm font-semibold text-gray-900 whitespace-nowrap">₹{oi.amountPaid.toFixed(2)}</p>
-              </div>
-            )
-          })}
-        </div>
-
-        <div className="bg-gray-50 rounded-xl p-3 space-y-1.5 text-sm">
-          <div className="flex justify-between text-gray-600">
-            <span>Total Cart Value (Pre-Tax)</span><span>₹{preTotal.toFixed(2)}</span>
-          </div>
-          <div className="flex justify-between text-gray-600">
-            <span>Taxable Amount</span><span>₹{taxable.toFixed(2)}</span>
-          </div>
-          {nonTax > 0 && (
-            <div className="flex justify-between text-gray-600">
-              <span>Non-Taxable Amount</span><span>₹{nonTax.toFixed(2)}</span>
-            </div>
-          )}
-          <div className="flex justify-between text-gray-600">
-            <span>Tax Amount</span><span>₹{taxAmt.toFixed(2)}</span>
-          </div>
-          <div className="flex justify-between font-bold text-gray-900 pt-1 border-t border-gray-200">
-            <span>Grand Total</span><span>₹{grand.toFixed(2)}</span>
-          </div>
-        </div>
-      </div>
-    )
-  }
 
   if (loading) return <Spinner />
 
@@ -482,11 +466,6 @@ function OrdersTab() {
         </FRow>
       </FiltersPanel>
 
-      {data.length === 100 && (
-        <p className="text-xs text-gray-400 text-center py-3 mb-2">
-          Showing most recent 100 results. Use filters to narrow down.
-        </p>
-      )}
       {displayed.length === 0 ? (
         <EmptyState emoji="📦" message="No orders found." />
       ) : (
@@ -599,7 +578,6 @@ function SupplyTab() {
         supplied_by_profile:profiles!supplied_by(full_name)
       `)
       .order('supplied_at', { ascending: false })
-      .limit(100)
       .then(({ data: rows }) => { setData(rows ?? []); setLoading(false) })
   }, [])
 
@@ -654,11 +632,6 @@ function SupplyTab() {
         </FRow>
       </FiltersPanel>
 
-      {data.length === 100 && (
-        <p className="text-xs text-gray-400 text-center py-3 mb-2">
-          Showing most recent 100 results. Use filters to narrow down.
-        </p>
-      )}
       {displayed.length === 0 ? (
         <EmptyState emoji="🚚" message="No supply logs found." />
       ) : (
@@ -773,7 +746,6 @@ function StorageTab() {
           )
         `)
         .order('date_stored', { ascending: false })
-        .limit(100)
         .then(({ data: rows }) => { setData(rows ?? []); setLoading(false) })
 
     fetchData()
@@ -937,11 +909,6 @@ function StorageTab() {
         </span>
       </div>
 
-      {data.length === 100 && (
-        <p className="text-xs text-gray-400 text-center py-3 mb-2">
-          Showing most recent 100 results. Use filters to narrow down.
-        </p>
-      )}
       {displayed.length === 0 ? (
         <EmptyState emoji="🗄️" message="Nothing in storage." />
       ) : (
@@ -1017,23 +984,26 @@ function ErrorsTab() {
   const [loading, setLoading]         = useState(true)
   const [deleting, setDeleting]       = useState(null)
 
-  const fetchAll = async () => {
-    const [{ data: errs }, { data: orders }] = await Promise.all([
-      supabase
-        .from('app_errors')
-        .select('*, user:profiles!user_id(full_name)')
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('orders')
-        .select('id, vendor_name, placed_at, placed_by_profile:profiles!placed_by(full_name), order_items(id)')
-        .order('placed_at', { ascending: false }),
-    ])
-    setAppErrors(errs ?? [])
-    setOrphans((orders ?? []).filter(o => (o.order_items?.length ?? 0) === 0))
-    setLoading(false)
-  }
-
-  useEffect(() => { fetchAll() }, [])
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const [{ data: errs }, { data: orders }] = await Promise.all([
+        supabase
+          .from('app_errors')
+          .select('*, user:profiles!user_id(full_name)')
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('orders')
+          .select('id, vendor_name, placed_at, placed_by_profile:profiles!placed_by(full_name), order_items(id)')
+          .order('placed_at', { ascending: false }),
+      ])
+      if (cancelled) return
+      setAppErrors(errs ?? [])
+      setOrphans((orders ?? []).filter(o => (o.order_items?.length ?? 0) === 0))
+      setLoading(false)
+    })()
+    return () => { cancelled = true }
+  }, [])
 
   const deleteError = async (id) => {
     setDeleting(id)

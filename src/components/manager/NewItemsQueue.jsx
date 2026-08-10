@@ -31,46 +31,61 @@ export default function NewItemsQueue() {
   const [toast, setToast]       = useState(null)
   const [acting, setActing]     = useState(null)
 
-  useEffect(() => { setFilter('pending') }, [dept])
+  const fetchItems = useCallback(async () => {
+    const { pending: pendingTable } = DEPT_CONFIG[dept]
+    const { data: rows, error: rowErr } = await supabase
+      .from(pendingTable)
+      .select('*')
+      .order('requested_at', { ascending: false })
+      .limit(100)
+    if (rowErr) throw rowErr
+
+    if (!rows?.length) return []
+
+    const allUserIds = [
+      ...new Set([
+        ...rows.map(i => i.requested_by),
+        ...rows.map(i => i.reviewed_by).filter(Boolean),
+      ]),
+    ]
+    const { data: profiles, error: profErr } = await supabase
+      .from('profiles').select('id, full_name').in('id', allUserIds)
+    if (profErr) throw profErr
+    const pMap = Object.fromEntries((profiles ?? []).map(p => [p.id, p]))
+
+    return rows.map(i => ({
+      ...i,
+      requesterName: pMap[i.requested_by]?.full_name ?? 'Unknown',
+      reviewerName:  i.reviewed_by ? (pMap[i.reviewed_by]?.full_name ?? 'Unknown') : null,
+    }))
+  }, [dept])
 
   const load = useCallback(async () => {
     setLoading(true)
     setLoadError(null)
-    const { pending: pendingTable } = DEPT_CONFIG[dept]
     try {
-      const { data: rows, error: rowErr } = await supabase
-        .from(pendingTable)
-        .select('*')
-        .order('requested_at', { ascending: false })
-        .limit(100)
-      if (rowErr) throw rowErr
-
-      if (!rows?.length) { setItems([]); setLoading(false); return }
-
-      const allUserIds = [
-        ...new Set([
-          ...rows.map(i => i.requested_by),
-          ...rows.map(i => i.reviewed_by).filter(Boolean),
-        ]),
-      ]
-      const { data: profiles, error: profErr } = await supabase
-        .from('profiles').select('id, full_name').in('id', allUserIds)
-      if (profErr) throw profErr
-      const pMap = Object.fromEntries((profiles ?? []).map(p => [p.id, p]))
-
-      setItems(rows.map(i => ({
-        ...i,
-        requesterName: pMap[i.requested_by]?.full_name ?? 'Unknown',
-        reviewerName:  i.reviewed_by ? (pMap[i.reviewed_by]?.full_name ?? 'Unknown') : null,
-      })))
-      setLoading(false)
+      setItems(await fetchItems())
     } catch {
       setLoadError('Something went wrong. Please refresh and try again.')
+    } finally {
       setLoading(false)
     }
-  }, [dept])
+  }, [fetchItems])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const rows = await fetchItems()
+        if (!cancelled) setItems(rows)
+      } catch {
+        if (!cancelled) setLoadError('Something went wrong. Please refresh and try again.')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [fetchItems])
 
   async function handleApprove(item) {
     setActing(item.id)
@@ -166,7 +181,7 @@ export default function NewItemsQueue() {
           {[['kitchen', '🍳 Kitchen'], ['housekeeping', '🧹 Housekeeping']].map(([val, label]) => (
             <button
               key={val}
-              onClick={() => setDept(val)}
+              onClick={() => { setDept(val); setFilter('pending'); setLoading(true) }}
               className={`flex-1 py-2 text-base font-medium rounded-lg transition-colors min-h-[44px] ${
                 dept === val ? 'bg-white text-gray-900 shadow-sm' : 'text-gray-500 hover:text-gray-800'
               }`}

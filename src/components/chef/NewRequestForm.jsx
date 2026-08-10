@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react'
+import { useState, useEffect } from 'react'
 import { useNavigate, useLocation } from 'react-router-dom'
 import { supabase } from '../../lib/supabase'
 import { useAuth } from '../../hooks/useAuth'
@@ -121,16 +121,24 @@ export default function NewRequestForm() {
   const [notes, setNotes]                       = useState(editingRequest?.notes ?? '')
   const [kitchenChecklist, setKitchenChecklist] = useState([])
   const [hkChecklist, setHkChecklist]           = useState([])
-  const [checkedItems, setCheckedItems]         = useState({})
-  const [customItems, setCustomItems]           = useState([])
+  const [checkedItems, setCheckedItems]         = useState(() => {
+    const checked = {}
+    for (const item of (editingRequest?.request_items ?? [])) {
+      if (!item.is_custom) checked[item.item_name] = { quantity: String(item.quantity), unit: item.unit }
+    }
+    return checked
+  })
+  const [customItems, setCustomItems]           = useState(() =>
+    (editingRequest?.request_items ?? [])
+      .filter(item => item.is_custom)
+      .map(item => ({ id: item.id, name: item.item_name, quantity: String(item.quantity), unit: item.unit }))
+  )
   const [loadingChecklist, setLoadingChecklist] = useState(true)
   const [purposeNotice, setPurposeNotice]       = useState(false)
   const [searchQuery, setSearchQuery]           = useState('')
   const [saving, setSaving]                     = useState(false)
   const [cancelling, setCancelling]             = useState(false)
   const [errors, setErrors]                     = useState({})
-
-  const isFirstPurposeRender = useRef(true)
 
   // Fetch BOTH checklists on mount so switching purpose is instant
   useEffect(() => {
@@ -144,31 +152,16 @@ export default function NewRequestForm() {
     })
   }, [])
 
-  useEffect(() => {
-    if (!editingRequest?.request_items) return
-    const checked = {}
-    const custom  = []
-    for (const item of editingRequest.request_items) {
-      if (item.is_custom) {
-        custom.push({ id: item.id, name: item.item_name, quantity: String(item.quantity), unit: item.unit })
-      } else {
-        checked[item.item_name] = { quantity: String(item.quantity), unit: item.unit }
-      }
-    }
-    setCheckedItems(checked)
-    setCustomItems(custom)
-  }, [editingRequest])
-
   // Clear selections and show a brief notice whenever the purpose changes
-  useEffect(() => {
-    if (isFirstPurposeRender.current) { isFirstPurposeRender.current = false; return }
+  const handlePurposeChange = (value) => {
+    if (value === purpose) return
+    setPurpose(value)
     setCheckedItems({})
     setCustomItems([])
-    if (!purpose) return
+    if (!value) return
     setPurposeNotice(true)
-    const t = setTimeout(() => setPurposeNotice(false), 2000)
-    return () => clearTimeout(t)
-  }, [purpose])
+    setTimeout(() => setPurposeNotice(false), 2000)
+  }
 
   const checklistItems = purpose === 'kitchen' ? kitchenChecklist : hkChecklist
 
@@ -381,7 +374,7 @@ export default function NewRequestForm() {
             </label>
             <select
               value={purpose}
-              onChange={e => setPurpose(e.target.value)}
+              onChange={e => handlePurposeChange(e.target.value)}
               className={`w-full border rounded-lg px-3 py-3 text-base text-gray-900 focus:outline-none focus:ring-2 focus:ring-blue-500 min-h-[48px] ${
                 errors.purpose ? 'border-red-400' : 'border-gray-300'
               }`}

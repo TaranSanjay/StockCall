@@ -30,24 +30,12 @@ export default function Navbar({ profile, onSignOut }) {
       .then(({ count }) => setPendingRequestsCount(count ?? 0))
 
     async function fetchPendingOrders() {
-      const { data: closedReqs } = await supabase
-        .from('requests')
-        .select('id, request_items(item_status)')
-        .eq('status', 'closed')
-        .limit(200)
-      if (!closedReqs?.length) { setPendingOrdersCount(0); return }
-
-      const relevantIds = closedReqs
-        .filter(r => (r.request_items ?? []).some(i => i.item_status === 'approved'))
-        .map(r => r.id)
-      if (!relevantIds.length) { setPendingOrdersCount(0); return }
-
-      const { data: orders } = await supabase
-        .from('orders')
-        .select('request_id')
-        .in('request_id', relevantIds)
+      const [{ data: submittedReqs }, { data: orders }] = await Promise.all([
+        supabase.from('requests').select('id').eq('status', 'submitted'),
+        supabase.from('orders').select('request_id'),
+      ])
       const orderedIds = new Set((orders ?? []).map(o => o.request_id))
-      setPendingOrdersCount(relevantIds.filter(id => !orderedIds.has(id)).length)
+      setPendingOrdersCount((submittedReqs ?? []).filter(r => !orderedIds.has(r.id)).length)
     }
     fetchPendingOrders()
   }, [isManager, profile?.username, location.pathname])

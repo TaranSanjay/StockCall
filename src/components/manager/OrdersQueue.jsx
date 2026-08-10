@@ -53,76 +53,103 @@ export default function OrdersQueue() {
   const [loading, setLoading]           = useState(true)
   const [loadError, setLoadError]       = useState(null)
 
-  const load = useCallback(async () => {
-    setLoading(true)
-    setLoadError(null)
-    try {
-      const { data: orders, error: ordErr } = await supabase
-        .from('orders')
-        .select('id, request_id, order_items(id)')
-        .limit(200)
-      if (ordErr) throw ordErr
-      const orderedIds = new Set((orders ?? []).map(o => o.request_id))
+  const fetchData = useCallback(async () => {
+    const { data: orders, error: ordErr } = await supabase
+      .from('orders')
+      .select('id, request_id, order_items(id)')
+    if (ordErr) throw ordErr
+    const orderedIds = new Set((orders ?? []).map(o => o.request_id))
 
-      const { data: submittedReqs, error: reqErr } = await supabase
+    // Fetch submitted requests that have NO order placed yet. We exclude the
+    // ordered ids server-side (NOT in) instead of slicing the top 100, so new
+    // requests are never pushed out of the list once the queue grows.
+    const submittedQuery = supabase
+      .from('requests')
+      .select('*, request_items(id)')
+      .eq('status', 'submitted')
+    const query = orderedIds.size
+      ? submittedQuery.not('id', 'in', `(${[...orderedIds].join(',')})`).order('submitted_at', { ascending: true })
+      : submittedQuery.order('submitted_at', { ascending: true })
+    const { data: submittedReqs, error: reqErr } = await query
+    if (reqErr) throw reqErr
+
+    const ready = submittedReqs ?? []
+
+    let placed = []
+    if (orderedIds.size) {
+      const { data: placedReqs, error: placedErr } = await supabase
         .from('requests')
         .select('*, request_items(id)')
-        .eq('status', 'submitted')
-        .order('submitted_at', { ascending: true })
-        .limit(100)
-      if (reqErr) throw reqErr
+        .in('id', [...orderedIds])
+        .order('updated_at', { ascending: false })
+      if (placedErr) throw placedErr
+      placed = placedReqs ?? []
+    }
 
-      const ready = (submittedReqs ?? []).filter(r => !orderedIds.has(r.id))
+    const chefIds = [...new Set([...ready, ...placed].map(r => r.chef_id))]
+    const { data: chefProfiles, error: profErr } = await supabase
+      .from('profiles').select('id, full_name').in('id', chefIds)
+    if (profErr) throw profErr
+    const pMap = Object.fromEntries((chefProfiles ?? []).map(p => [p.id, p]))
 
-      let placed = []
-      if (orderedIds.size) {
-        const { data: placedReqs, error: placedErr } = await supabase
-          .from('requests')
-          .select('*, request_items(id)')
-          .in('id', [...orderedIds])
-          .order('updated_at', { ascending: false })
-          .limit(100)
-        if (placedErr) throw placedErr
-        placed = placedReqs ?? []
-      }
+    // Supply status for placed orders
+    const orderItemIds = (orders ?? []).flatMap(o => (o.order_items ?? []).map(oi => oi.id))
+    let suppliedItemIds = new Set()
+    if (orderItemIds.length) {
+      const { data: slogs, error: slogErr } = await supabase
+        .from('supply_logs').select('order_item_id')
+        .in('order_item_id', orderItemIds)
+      if (slogErr) throw slogErr
+      suppliedItemIds = new Set((slogs ?? []).map(sl => sl.order_item_id))
+    }
+    const supplyStatusMap = {}
+    ;(orders ?? []).forEach(o => {
+      const ois = o.order_items ?? []
+      supplyStatusMap[o.request_id] = ois.length > 0 && ois.every(oi => suppliedItemIds.has(oi.id))
+    })
 
-      const chefIds = [...new Set([...ready, ...placed].map(r => r.chef_id))]
-      const { data: chefProfiles, error: profErr } = await supabase
-        .from('profiles').select('id, full_name').in('id', chefIds)
-      if (profErr) throw profErr
-      const pMap = Object.fromEntries((chefProfiles ?? []).map(p => [p.id, p]))
-
-      // Supply status for placed orders
-      const orderItemIds = (orders ?? []).flatMap(o => (o.order_items ?? []).map(oi => oi.id))
-      let suppliedItemIds = new Set()
-      if (orderItemIds.length) {
-        const { data: slogs, error: slogErr } = await supabase
-          .from('supply_logs').select('order_item_id')
-          .in('order_item_id', orderItemIds)
-        if (slogErr) throw slogErr
-        suppliedItemIds = new Set((slogs ?? []).map(sl => sl.order_item_id))
-      }
-      const supplyStatusMap = {}
-      ;(orders ?? []).forEach(o => {
-        const ois = o.order_items ?? []
-        supplyStatusMap[o.request_id] = ois.length > 0 && ois.every(oi => suppliedItemIds.has(oi.id))
-      })
-
-      setReadyToOrder(ready.map(r => ({ ...r, chef: pMap[r.chef_id] ?? null, hasOrder: false })))
-      setOrdersPlaced(placed.map(r => ({
+    return {
+      ready: ready.map(r => ({ ...r, chef: pMap[r.chef_id] ?? null, hasOrder: false })),
+      placed: placed.map(r => ({
         ...r,
         chef: pMap[r.chef_id] ?? null,
         hasOrder: true,
         isFullySupplied: supplyStatusMap[r.id] ?? false,
-      })))
-      setLoading(false)
-    } catch {
-      setLoadError('Something went wrong. Please refresh and try again.')
-      setLoading(false)
+      })),
     }
   }, [])
 
-  useEffect(() => { load() }, [load])
+  const load = useCallback(async () => {
+    setLoading(true)
+    setLoadError(null)
+    try {
+      const { ready, placed } = await fetchData()
+      setReadyToOrder(ready)
+      setOrdersPlaced(placed)
+    } catch {
+      setLoadError('Something went wrong. Please refresh and try again.')
+    } finally {
+      setLoading(false)
+    }
+  }, [fetchData])
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const { ready, placed } = await fetchData()
+        if (!cancelled) {
+          setReadyToOrder(ready)
+          setOrdersPlaced(placed)
+        }
+      } catch {
+        if (!cancelled) setLoadError('Something went wrong. Please refresh and try again.')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, [fetchData])
 
   if (loading) {
     return (

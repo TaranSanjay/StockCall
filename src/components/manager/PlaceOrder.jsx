@@ -268,7 +268,7 @@ export default function PlaceOrder() {
   // ── Submit ──────────────────────────────────────────────────────────────────
   const handleSubmit = async () => {
     if (!approvedItems.length) {
-      setErrors({ submit: 'No approved items to order. All items in this request were rejected.' })
+      setErrors({ submit: 'No items to order. Please add items to the request first.' })
       return
     }
     const errs = {}
@@ -389,8 +389,8 @@ export default function PlaceOrder() {
             <h1 className="text-xl font-bold text-gray-900">Place Order</h1>
           </div>
           <div className="bg-amber-50 border border-amber-200 rounded-xl p-5">
-            <p className="text-base font-semibold text-amber-800 mb-1">All items in this request were rejected.</p>
-            <p className="text-sm text-amber-700">There are no approved items to order.</p>
+            <p className="text-base font-semibold text-amber-800 mb-1">This request has no items to order.</p>
+            <p className="text-sm text-amber-700">Add items to the request first, then place the order.</p>
           </div>
         </div>
       </div>
